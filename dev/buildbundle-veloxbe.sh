@@ -20,7 +20,10 @@ source "$BASEDIR/builddeps-veloxbe.sh"
 
 function build_for_spark {
   spark_version=$1
-  mvn clean package -Pbackends-velox -Pspark-$spark_version -DskipTests
+  scala_version=$2
+  java_version=$3
+  velox_home="${4:-}"
+  mvn clean package -Pbackends-velox -Pspark-$spark_version -Pscala-$scala_version -Pjava-$java_version ${velox_home:+-Dbackend.home=$velox_home} -DskipTests
 }
 
 function check_supported {
@@ -38,12 +41,6 @@ cd $GLUTEN_DIR
 
 check_supported
 
-# SPARK_VERSION is defined in builddeps-veloxbe.sh
-if [ "$SPARK_VERSION" = "ALL" ]; then
-  for spark_version in 3.2 3.3 3.4 3.5
-  do
-    build_for_spark $spark_version
-  done
-else
-  build_for_spark $SPARK_VERSION
-fi
+echo "VELOX_HOME is $VELOX_HOME"
+# SPARK_VERSION, $SCALA_VERSION, $JAVA_VERSION and $VELOX_HOME  is defined in builddeps-veloxbe.sh
+build_for_spark $SPARK_VERSION $SCALA_VERSION $JAVA_VERSION $VELOX_HOME

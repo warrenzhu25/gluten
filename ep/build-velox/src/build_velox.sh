@@ -21,7 +21,7 @@ VELOX_HOME=""
 # Enable S3 connector.
 ENABLE_S3=OFF
 # Enable GCS connector.
-ENABLE_GCS=OFF
+ENABLE_GCS=ON
 # Enable HDFS connector.
 ENABLE_HDFS=OFF
 # Enable ABFS connector.

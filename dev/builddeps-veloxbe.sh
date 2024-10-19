@@ -34,7 +34,7 @@ BUILD_VELOX_BENCHMARKS=OFF
 ENABLE_QAT=OFF
 ENABLE_IAA=OFF
 ENABLE_HBM=OFF
-ENABLE_GCS=OFF
+ENABLE_GCS=ON
 ENABLE_S3=OFF
 ENABLE_HDFS=OFF
 ENABLE_ABFS=OFF
@@ -43,9 +43,12 @@ RUN_SETUP_SCRIPT=ON
 VELOX_REPO=""
 VELOX_BRANCH=""
 VELOX_HOME=""
+VELOX_REMOVE_LOCAL_CHANGES=OFF
 VELOX_PARAMETER=""
 BUILD_ARROW=ON
-SPARK_VERSION=ALL
+SPARK_VERSION=3.5
+SCALA_VERSION=2.12
+JAVA_VERSION=11
 INSTALL_PREFIX=${INSTALL_PREFIX:-}
 
 # set default number of threads as cpu cores minus 2
@@ -132,6 +135,10 @@ do
         VELOX_HOME=("${arg#*=}")
         shift # Remove argument name from processing
         ;;
+        --velox_remove_local_changes=*)
+        VELOX_REMOVE_LOCAL_CHANGES=("${arg#*=}")
+        shift # Remove argument name from processing
+        ;;
         --build_velox_tests=*)
         BUILD_VELOX_TESTS=("${arg#*=}")
         shift # Remove argument name from processing
@@ -152,7 +159,15 @@ do
         SPARK_VERSION=("${arg#*=}")
         shift # Remove argument name from processing
         ;;
-	      *)
+        --scala_version=*)
+        SCALA_VERSION=("${arg#*=}")
+        shift # Remove argument name from processing
+        ;;
+        --java_version=*)
+        JAVA_VERSION=("${arg#*=}")
+        shift # Remove argument name from processing
+        ;;
+              *)
         OTHER_ARGUMENTS+=("$1")
         shift # Remove generic argument from processing
         ;;
@@ -174,6 +189,8 @@ function concat_velox_param {
     if [[ -n $VELOX_HOME ]]; then
         VELOX_PARAMETER+="--velox_home=$VELOX_HOME "
     fi
+
+    VELOX_PARAMETER+="--velox_remove_local_changes=$VELOX_REMOVE_LOCAL_CHANGES "
 }
 
 if [ "$ENABLE_VCPKG" = "ON" ]; then
@@ -192,6 +209,22 @@ else
   exit 1
 fi
 
+if [ "$SCALA_VERSION" == "2.12" ] || [ "$SCALA_VERSION" == "2.13" ]; then
+  echo "Build for Scala $SCALA_VERSION"
+else
+  echo "Invalid Scala version: $SCALA_VERSION"
+  exit 1
+fi
+
+if [ "$JAVA_VERSION" == "8" ] \
+  || [ "$JAVA_VERSION" == "11" ] \
+  || [ "JAVA_VERSION" == "17" ]; then
+  echo "Build Java version: $JAVA_VERSION"
+else
+  echo "Invalid Java version: $JAVA_VERSION"
+  exit 1
+fi
+
 concat_velox_param
 
 function build_arrow {
@@ -206,7 +239,7 @@ function build_velox {
   ./build_velox.sh --enable_s3=$ENABLE_S3 --enable_gcs=$ENABLE_GCS --build_type=$BUILD_TYPE --enable_hdfs=$ENABLE_HDFS \
                    --enable_abfs=$ENABLE_ABFS --build_test_utils=$BUILD_TESTS \
                    --build_tests=$BUILD_VELOX_TESTS --build_benchmarks=$BUILD_VELOX_BENCHMARKS --num_threads=$NUM_THREADS \
-                   --velox_home=$VELOX_HOME
+                   $VELOX_PARAMETER
 }
 
 function build_gluten_cpp {

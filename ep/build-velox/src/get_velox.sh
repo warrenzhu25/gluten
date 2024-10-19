@@ -16,9 +16,10 @@
 
 set -exu
 
-VELOX_REPO=https://github.com/oap-project/velox.git
-VELOX_BRANCH=gluten-1.4.0-v1
+VELOX_REPO=sso://bigdataoss-internal/third_party/oap-project/velox
+VELOX_BRANCH=dataproc-branch-1.4
 VELOX_HOME=""
+VELOX_REMOVE_LOCAL_CHANGES=OFF
 
 OS=`uname -s`
 
@@ -35,6 +36,10 @@ for arg in "$@"; do
   --velox_home=*)
     VELOX_HOME=("${arg#*=}")
     shift # Remove argument name from processing
+    ;;
+  --velox_remove_local_changes=*)
+    VELOX_REMOVE_LOCAL_CHANGES=("${arg#*=}")
+    shift # Remove argment name from processing
     ;;
   *)
     OTHER_ARGUMENTS+=("$1")
@@ -101,7 +106,7 @@ function process_setup_centos9 {
   ensure_pattern_matched 'dnf_install' scripts/setup-centos9.sh
   sed -i 's/dnf_install ninja-build cmake curl ccache gcc-toolset-12 git/dnf_install ninja-build cmake curl ccache gcc-toolset-12/' scripts/setup-centos9.sh
   sed -i '/^.*dnf_install autoconf/a\  dnf_install libxml2-devel libgsasl-devel libuuid-devel' scripts/setup-centos9.sh
-  
+
   ensure_pattern_matched 'install_gflags' scripts/setup-centos9.sh
   sed -i '/^function install_gflags.*/i function install_openssl {\n  wget_and_untar https://github.com/openssl/openssl/releases/download/openssl-3.2.2/openssl-3.2.2.tar.gz openssl \n ( cd ${DEPENDENCY_DIR}/openssl \n  ./config no-shared && make depend && make && sudo make install ) \n}\n'     scripts/setup-centos9.sh
 
@@ -150,28 +155,32 @@ TARGET_BUILD_COMMIT="$(git ls-remote $VELOX_REPO $VELOX_BRANCH | awk '{print $1;
 if [ -d $VELOX_SOURCE_DIR ]; then
   echo "Velox source folder $VELOX_SOURCE_DIR already exists..."
   cd $VELOX_SOURCE_DIR
-  # if velox_branch exists, check it out, 
-  # otherwise assume that user prepared velox source in velox_home, skip checkout
-  if [ -n "$TARGET_BUILD_COMMIT" ]; then
-    git init .
-    EXISTS=$(git show-ref refs/tags/build_$TARGET_BUILD_COMMIT || true)
-    if [ -z "$EXISTS" ]; then
-      git fetch $VELOX_REPO $TARGET_BUILD_COMMIT:refs/tags/build_$TARGET_BUILD_COMMIT
+  if [ $VELOX_REMOVE_LOCAL_CHANGES == "ON" ]; then
+    echo "All local changes in Velox directory will be removed"
+    # if velox_branch exists, check it out,
+    # otherwise assume that user prepared velox source in velox_home, skip checkout
+    if [ -n "$TARGET_BUILD_COMMIT" ]; then
+      git init .
+      EXISTS=$(git show-ref refs/tags/build_$TARGET_BUILD_COMMIT || true)
+      if [ -z "$EXISTS" ]; then
+        git fetch $VELOX_REPO $TARGET_BUILD_COMMIT:refs/tags/build_$TARGET_BUILD_COMMIT
+      fi
+      git reset --hard HEAD
+      git checkout refs/tags/build_$TARGET_BUILD_COMMIT
+      git submodule sync --recursive
+      git submodule update --init --recursive
+    else
+      echo "$VELOX_BRANCH can't be found in $VELOX_REPO, skipping the download..."
     fi
-    git reset --hard HEAD
-    git checkout refs/tags/build_$TARGET_BUILD_COMMIT
-  else
-    echo "$VELOX_BRANCH can't be found in $VELOX_REPO, skipping the download..."
   fi
 else
+  VELOX_REMOVE_LOCAL_CHANGES=ON
   git clone $VELOX_REPO -b $VELOX_BRANCH $VELOX_SOURCE_DIR
   cd $VELOX_SOURCE_DIR
   git checkout $TARGET_BUILD_COMMIT
+  git submodule sync --recursive
+  git submodule update --init --recursive
 fi
-
-#sync submodules
-git submodule sync --recursive
-git submodule update --init --recursive
 
 function apply_compilation_fixes {
   current_dir=$1
@@ -187,7 +196,8 @@ function apply_compilation_fixes {
 
 function setup_linux {
   local LINUX_DISTRIBUTION=$(. /etc/os-release && echo ${ID})
-  local LINUX_VERSION_ID=$(. /etc/os-release && echo ${VERSION_ID})
+  local LINUX_VERSION_CODENAME=$(. /etc/os-release && echo ${VERSION_CODENAME})
+  local LINUX_VERSION_ID=$(. /etc/os-release && echo ${VERSION_ID:-12})
 
   export SUDO="sudo --preserve-env"
   if [[ "$LINUX_DISTRIBUTION" == "ubuntu" || "$LINUX_DISTRIBUTION" == "debian" || "$LINUX_DISTRIBUTION" == "pop" ]]; then
@@ -243,6 +253,9 @@ else
   exit 1
 fi
 
-apply_compilation_fixes $CURRENT_DIR $VELOX_SOURCE_DIR
+if [ $VELOX_REMOVE_LOCAL_CHANGES == "ON" ]; then
+  echo "Applying compilation fixes for Velox"
+  apply_compilation_fixes $CURRENT_DIR $VELOX_SOURCE_DIR
+fi
 
 echo "Finished getting Velox code"

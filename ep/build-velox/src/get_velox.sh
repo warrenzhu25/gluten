@@ -21,6 +21,9 @@ VELOX_BRANCH=dataproc-branch-1.4
 VELOX_HOME=""
 VELOX_REMOVE_LOCAL_CHANGES=OFF
 
+GET_VELOX=OFF
+SETUP_VELOX=ON
+
 OS=`uname -s`
 
 for arg in "$@"; do
@@ -40,6 +43,14 @@ for arg in "$@"; do
   --velox_remove_local_changes=*)
     VELOX_REMOVE_LOCAL_CHANGES=("${arg#*=}")
     shift # Remove argment name from processing
+    ;;
+  --get_velox=*)
+      GET_VELOX=("${arg#*=}")
+      shift # Remove argument name from processing
+      ;;
+  --setup_velox=*)
+    SETUP_VELOX=("${arg#*=}")
+    shift # Remove argument name from processing
     ;;
   *)
     OTHER_ARGUMENTS+=("$1")
@@ -92,6 +103,9 @@ function process_setup_ubuntu {
   # Just depends on Gluten to install arrow libs since Gluten requires some patches are applied and some different build options are used.
   ensure_pattern_matched 'run_and_time install_arrow' scripts/setup-ubuntu.sh
   sed -i '/run_and_time install_arrow/d' scripts/setup-ubuntu.sh
+  if ! pip3 install --help | grep -q -- "--break-system-packages"; then
+      sed -i 's/--break-system-packages//g' scripts/setup-ubuntu.sh
+  fi
 }
 
 function process_setup_centos9 {
@@ -138,8 +152,6 @@ function process_setup_tencentos32 {
   sed -i "/^[[:space:]]*#/!s/.*dnf config-manager --set-enabled powertools/#&/" ${CURRENT_DIR}/setup-centos8.sh
 }
 
-echo "Preparing Velox source code..."
-
 CURRENT_DIR=$(
   cd "$(dirname "$BASH_SOURCE")"
   pwd
@@ -150,37 +162,38 @@ if [ "$VELOX_HOME" == "" ]; then
 fi
 VELOX_SOURCE_DIR="${VELOX_HOME}"
 
-# checkout code
-TARGET_BUILD_COMMIT="$(git ls-remote $VELOX_REPO $VELOX_BRANCH | awk '{print $1;}' | head -n 1)"
-if [ -d $VELOX_SOURCE_DIR ]; then
-  echo "Velox source folder $VELOX_SOURCE_DIR already exists..."
-  cd $VELOX_SOURCE_DIR
-  if [ $VELOX_REMOVE_LOCAL_CHANGES == "ON" ]; then
-    echo "All local changes in Velox directory will be removed"
-    # if velox_branch exists, check it out,
-    # otherwise assume that user prepared velox source in velox_home, skip checkout
-    if [ -n "$TARGET_BUILD_COMMIT" ]; then
-      git init .
-      EXISTS=$(git show-ref refs/tags/build_$TARGET_BUILD_COMMIT || true)
-      if [ -z "$EXISTS" ]; then
-        git fetch $VELOX_REPO $TARGET_BUILD_COMMIT:refs/tags/build_$TARGET_BUILD_COMMIT
+function checkout_code {
+  TARGET_BUILD_COMMIT="$(git ls-remote $VELOX_REPO $VELOX_BRANCH | awk '{print $1;}' | head -n 1)"
+  if [ -d $VELOX_SOURCE_DIR ]; then
+    echo "Velox source folder $VELOX_SOURCE_DIR already exists..."
+    cd $VELOX_SOURCE_DIR
+    if [ $VELOX_REMOVE_LOCAL_CHANGES == "ON" ]; then
+      echo "All local changes in Velox directory will be removed"
+      # if velox_branch exists, check it out,
+      # otherwise assume that user prepared velox source in velox_home, skip checkout
+      if [ -n "$TARGET_BUILD_COMMIT" ]; then
+        git init .
+        EXISTS=$(git show-ref refs/tags/build_$TARGET_BUILD_COMMIT || true)
+        if [ -z "$EXISTS" ]; then
+          git fetch $VELOX_REPO $TARGET_BUILD_COMMIT:refs/tags/build_$TARGET_BUILD_COMMIT
+        fi
+        git reset --hard HEAD
+        git checkout refs/tags/build_$TARGET_BUILD_COMMIT
+        git submodule sync --recursive
+        git submodule update --init --recursive
+      else
+        echo "$VELOX_BRANCH can't be found in $VELOX_REPO, skipping the download..."
       fi
-      git reset --hard HEAD
-      git checkout refs/tags/build_$TARGET_BUILD_COMMIT
-      git submodule sync --recursive
-      git submodule update --init --recursive
-    else
-      echo "$VELOX_BRANCH can't be found in $VELOX_REPO, skipping the download..."
     fi
+  else
+    VELOX_REMOVE_LOCAL_CHANGES=ON
+    git clone $VELOX_REPO -b $VELOX_BRANCH $VELOX_SOURCE_DIR
+    cd $VELOX_SOURCE_DIR
+    git checkout $TARGET_BUILD_COMMIT
+    git submodule sync --recursive
+    git submodule update --init --recursive
   fi
-else
-  VELOX_REMOVE_LOCAL_CHANGES=ON
-  git clone $VELOX_REPO -b $VELOX_BRANCH $VELOX_SOURCE_DIR
-  cd $VELOX_SOURCE_DIR
-  git checkout $TARGET_BUILD_COMMIT
-  git submodule sync --recursive
-  git submodule update --init --recursive
-fi
+}
 
 function apply_compilation_fixes {
   current_dir=$1
@@ -244,18 +257,32 @@ function setup_linux {
   fi
 }
 
-if [ $OS == 'Linux' ]; then
-  setup_linux
-elif [ $OS == 'Darwin' ]; then
-  :
-else
-  echo "Unsupported kernel: $OS"
-  exit 1
+echo "Preparing Velox source code..."
+
+if [ "$GET_VELOX" == "ON" ]; then
+  checkout_code
 fi
 
-if [ $VELOX_REMOVE_LOCAL_CHANGES == "ON" ]; then
-  echo "Applying compilation fixes for Velox"
-  apply_compilation_fixes $CURRENT_DIR $VELOX_SOURCE_DIR
+if [ "$SETUP_VELOX" == "ON" ]; then
+  if [ ! -d "$VELOX_SOURCE_DIR" ]; then
+    echo "Error: $VELOX_SOURCE_DIR does not exist."
+    exit 1
+  fi
+  cd $VELOX_SOURCE_DIR
+
+  if [ $OS == 'Linux' ]; then
+    setup_linux
+  elif [ $OS == 'Darwin' ]; then
+    :
+  else
+    echo "Unsupported kernel: $OS"
+    exit 1
+  fi
+
+  if [ $VELOX_REMOVE_LOCAL_CHANGES == "ON" ]; then
+    echo "Applying compilation fixes for Velox"
+    apply_compilation_fixes $CURRENT_DIR $VELOX_SOURCE_DIR
+  fi
 fi
 
 echo "Finished getting Velox code"

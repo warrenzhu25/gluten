@@ -20,6 +20,7 @@ import org.apache.gluten.jni.JniLibLoader
 
 class SharedLibraryLoaderDebian12 extends SharedLibraryLoader {
   override def loadLib(loader: JniLibLoader): Unit = {
+    loader.loadAndCreateLink("libre2.so.9", "libre2.so", false)
     loader.loadAndCreateLink("libcrypto.so.3", "libcrypto.so", false)
     loader.loadAndCreateLink("libkrb5support.so.0", "libkrb5support.so", false)
     loader.loadAndCreateLink("libssl.so.3", "libssl.so", false)

@@ -5,13 +5,15 @@ set -ex
 os_version="Debian12"
 volumes=()
 java_version="Java17"
+get_velox="ON"
 
-while getopts "v:o:j:d" opt; do
+while getopts "v:o:j:d:g" opt; do
   case $opt in
     v) volumes+=("$OPTARG");;
     o) os_version="$OPTARG";;
     j) java_version="$OPTARG";;
     d) build_type="Debug";;
+    g) get_velox="OFF";;
     *) echo "Invalid option: -$OPTARG"; exit 1;;
   esac
 done
@@ -28,7 +30,7 @@ cd "$script_dir"
 ./host-scripts/build.sh "$os_version" "$java_version"
 
 # Get Velox
-./../../ep/build-velox/src/get_velox.sh --get_velox=ON --setup_velox=OFF
+./../../ep/build-velox/src/get_velox.sh --get_velox=$get_velox --setup_velox=OFF
 
 # Start docker container
 ./host-scripts/run.sh -t "build" -o $os_version -j $java_version $volume_args

@@ -179,11 +179,11 @@ function checkout_code {
         fi
         git reset --hard HEAD
         git checkout refs/tags/build_$TARGET_BUILD_COMMIT
-        git submodule sync --recursive
-        git submodule update --init --recursive
       else
         echo "$VELOX_BRANCH can't be found in $VELOX_REPO, skipping the download..."
       fi
+      git submodule sync --recursive
+      git submodule update --init --recursive
     fi
   else
     VELOX_REMOVE_LOCAL_CHANGES=ON

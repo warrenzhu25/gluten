@@ -24,7 +24,10 @@ import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanHelper, AQEShuf
 import org.apache.spark.sql.execution.exchange.ShuffleExchangeExec
 import org.apache.spark.sql.execution.joins.{BroadcastHashJoinExec, SortMergeJoinExec}
 
-class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPlanHelper {
+class FallbackSuite
+  extends VeloxWholeStageTransformerSuite
+  with AdaptiveSparkPlanHelper
+  with ConfigurationHelper {
   protected val rootPath: String = getClass.getResource("/").getPath
   override protected val resourcePath: String = "/tpch-data-parquet"
   override protected val fileFormat: String = "parquet"
@@ -267,6 +270,33 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
         df =>
           val plan = df.queryExecution.executedPlan
           assert(collect(plan) { case smj: SortMergeJoinExec => smj }.size == 1)
+      }
+    }
+  }
+
+  test("test fallback with blocklisted configurations") {
+    // Without blocklisted configurations
+    runQueryAndCompare("SELECT count(*) FROM tmp1") {
+      df =>
+        val plan = df.queryExecution.executedPlan
+        assert(collect(plan) { case g: GlutenPlan => g }.nonEmpty)
+    }
+
+    // With Blocklisted Hadoop Configuration
+    withHadoopConf(spark)("fs.gs.batch.threads" -> "1") {
+      runQueryAndCompare("SELECT count(*) FROM tmp1") {
+        df =>
+          val plan = df.queryExecution.executedPlan
+          assert(collect(plan) { case g: GlutenPlan => g }.isEmpty)
+      }
+    }
+
+    // With Blocklisted hadoop Configuration Prefix Key
+    withHadoopConf(spark)("fs.gs.storage.http.headers.test" -> "1234") {
+      runQueryAndCompare("SELECT count(*) FROM tmp1") {
+        df =>
+          val plan = df.queryExecution.executedPlan
+          assert(collect(plan) { case g: GlutenPlan => g }.isEmpty)
       }
     }
   }

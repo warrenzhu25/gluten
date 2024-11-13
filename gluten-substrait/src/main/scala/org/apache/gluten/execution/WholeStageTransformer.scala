@@ -29,7 +29,7 @@ import org.apache.gluten.substrait.SubstraitContext
 import org.apache.gluten.substrait.plan.{PlanBuilder, PlanNode}
 import org.apache.gluten.substrait.rel.{LocalFilesNode, RelNode, SplitInfo}
 import org.apache.gluten.test.TestStats
-import org.apache.gluten.utils.SubstraitPlanPrinterUtil
+import org.apache.gluten.utils.{ANY, AnyExcept, BlockListedConfiguration, BlockListedHadoopConfiguration, BlockListedHadoopConfigurationPrefix, SubstraitPlanPrinterUtil}
 
 import org.apache.spark._
 import org.apache.spark.rdd.RDD
@@ -111,7 +111,10 @@ trait ValidatablePlan extends GlutenPlan with LogLevelUtil {
     }
     val validationResult = failValidationWithException {
       TransformerState.enterValidation
-      doValidateInternal()
+      Seq(doValidateConfigurations _, doValidateInternal _).iterator
+        .map(_())
+        .find(!_.ok)
+        .getOrElse(ValidationResult.succeeded)
     } {
       TransformerState.finishValidation
     }
@@ -128,6 +131,46 @@ trait ValidatablePlan extends GlutenPlan with LogLevelUtil {
   }
 
   protected def doValidateInternal(): ValidationResult = ValidationResult.succeeded
+
+  protected def doValidateConfigurations(): ValidationResult = {
+    blockListedConfigurations.toIterator // Done for early termination
+      .map(_.validate(session))
+      .find(!_.ok)
+      .getOrElse(ValidationResult.succeeded)
+  }
+
+  /**
+   * Configurations added here will disable all gluten operators. To disable a specific operator,
+   * override this method in the respective operator's definition.
+   */
+  protected def blockListedConfigurations: Seq[BlockListedConfiguration] = Seq(
+    // GCS Configurations
+    // TODO: Handle fs.gs.project.id set to non submitting project. (By default this is set to
+    //  submitting project)
+    // TODO: Add spark configurations.
+    BlockListedHadoopConfiguration("fs.gs.working.dir", AnyExcept("/")),
+    BlockListedHadoopConfiguration("fs.gs.implicit.dir.repair.enable", AnyExcept("true")),
+    BlockListedHadoopConfiguration("fs.gs.copy.with.rewrite.enable", AnyExcept("true")),
+    BlockListedHadoopConfiguration("fs.gs.rewrite.max.chunk.size", AnyExcept("512m")),
+    BlockListedHadoopConfiguration("fs.gs.delegation.token.binding", ANY),
+    BlockListedHadoopConfiguration("fs.gs.bucket.delete.enable", AnyExcept("false")),
+    BlockListedHadoopConfiguration("fs.gs.checksum.type", ANY),
+    BlockListedHadoopConfiguration("fs.gs.status.parallel.enable", AnyExcept("true")),
+    BlockListedHadoopConfiguration("fs.gs.lazy.init.enable", AnyExcept("false")),
+    BlockListedHadoopConfiguration("fs.gs.block.size", AnyExcept("134217728")),
+    BlockListedHadoopConfiguration("fs.gs.create.items.conflict.check.enable", AnyExcept("true")),
+    BlockListedHadoopConfiguration("fs.gs.glob.algorithm", AnyExcept("CONCURRENT")),
+    BlockListedHadoopConfiguration("fs.gs.max.requests.per.batch", AnyExcept("15")),
+    BlockListedHadoopConfiguration("fs.gs.batch.threads", AnyExcept("15")),
+    BlockListedHadoopConfiguration("fs.gs.list.max.items.per.call", AnyExcept("5000")),
+    BlockListedHadoopConfiguration("fs.gs.max.wait.for.empty.object.creation", AnyExcept("3s")),
+    BlockListedHadoopConfiguration("fs.gs.marker.file.pattern", ANY),
+    BlockListedHadoopConfiguration("fs.gs.marker.file.pattern", ANY),
+    BlockListedHadoopConfigurationPrefix("fs.gs.storage.http.headers", ANY),
+    BlockListedHadoopConfiguration("fs.gs.encryption.algorithm", ANY),
+    BlockListedHadoopConfiguration("fs.gs.encryption.key", ANY),
+    BlockListedHadoopConfiguration("fs.gs.encryption.key.hash", ANY)
+  )
 
   private def logValidationMessage(msg: => String, e: Throwable): Unit = {
     if (glutenConf.printStackOnValidationFailure) {

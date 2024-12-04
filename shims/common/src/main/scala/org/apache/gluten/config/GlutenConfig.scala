@@ -975,7 +975,7 @@ object GlutenConfig {
       .internal()
       .doc("Enable or disable columnar table cache.")
       .booleanConf
-      .createWithDefault(false)
+      .createWithDefault(true)
 
   val COLUMNAR_PHYSICAL_JOIN_OPTIMIZATION_THROTTLE =
     buildConf("spark.gluten.sql.columnar.physicalJoinOptimizationLevel")

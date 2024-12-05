@@ -28,6 +28,7 @@ import org.apache.spark.sql.catalyst.SQLConfHelper
 import org.apache.spark.sql.catalyst.expressions.{StringTrimBoth, _}
 import org.apache.spark.sql.catalyst.expressions.objects.StaticInvoke
 import org.apache.spark.sql.catalyst.optimizer.NormalizeNaNAndZero
+import org.apache.spark.sql.catalyst.util.CharVarcharCodegenUtils
 import org.apache.spark.sql.execution.ScalarSubquery
 import org.apache.spark.sql.hive.HiveUDFTransformer
 import org.apache.spark.sql.internal.SQLConf
@@ -148,6 +149,13 @@ object ExpressionConverter extends SQLConfHelper with Logging {
         return BackendsApiManager.getSparkPlanExecApiInstance.genHiveUDFTransformer(
           expr,
           attributeSeq)
+      case StaticInvoke(staticObject, StringType, "readSidePadding", childExpressions, _, _, _, _)
+          if staticObject == classOf[CharVarcharCodegenUtils] =>
+        return GenericExpressionTransformer(
+          "rpad",
+          childExpressions.map(replaceWithExpressionTransformer0(_, attributeSeq, expressionsMap)),
+          expr
+        )
       case i: StaticInvoke =>
         val objectName = i.staticObject.getName.stripSuffix("$")
         if (objectName.endsWith("UrlCodec")) {

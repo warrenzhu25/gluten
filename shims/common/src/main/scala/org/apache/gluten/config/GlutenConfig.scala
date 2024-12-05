@@ -1592,7 +1592,7 @@ object GlutenConfig {
       .internal()
       .doc("Force fallback for orc char type scan.")
       .booleanConf
-      .createWithDefault(true)
+      .createWithDefault(false)
 
   val VELOX_SCAN_FILE_SCHEME_VALIDATION_ENABLED =
     buildConf("spark.gluten.sql.scan.fileSchemeValidation.enabled")

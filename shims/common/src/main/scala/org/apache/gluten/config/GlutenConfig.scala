@@ -129,6 +129,9 @@ class GlutenConfig(conf: SQLConf) extends Logging {
       .getConfString("spark.shuffle.manager", "sort")
       .equals("org.apache.spark.shuffle.GlutenShuffleManager")
 
+  def forceOrcTimestampTypeScanFallbackEnabled: Boolean =
+    getConf(VELOX_FORCE_ORC_TIMESTAMP_TYPE_SCAN_FALLBACK)
+
   // Whether to use ColumnarShuffleManager.
   def isUseColumnarShuffleManager: Boolean =
     conf
@@ -1617,6 +1620,13 @@ object GlutenConfig {
           " operator fall back.")
       .booleanConf
       .createWithDefault(true)
+
+  val VELOX_FORCE_ORC_TIMESTAMP_TYPE_SCAN_FALLBACK =
+    buildConf("spark.gluten.sql.orc.timestampType.scan.fallback.enabled")
+      .internal()
+      .doc("Force fallback for ORC timestamp type scan.")
+      .booleanConf
+      .createWithDefault(false)
 
   val COLUMNAR_NATIVE_CAST_AGGREGATE_ENABLED =
     buildConf("spark.gluten.sql.columnar.cast.avg")

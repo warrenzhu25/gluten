@@ -21,7 +21,7 @@ import org.apache.spark.sql.execution.FileSourceScanExec
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{DayTimeIntervalType, IntegerType, StructField, StructType, YearMonthIntervalType}
 
-import java.sql.Date
+import java.sql.{Date, Timestamp}
 import java.time.{Duration, Period}
 
 class GlutenOrcSourceSuite extends OrcSourceSuite with GlutenSQLTestsBaseTrait {
@@ -95,6 +95,22 @@ class GlutenOrcSourceSuite extends OrcSourceSuite with GlutenSQLTestsBaseTrait {
                   Row(java.sql.Timestamp.valueOf("1582-10-15 11:12:13.654321"))))
             }
         }
+    }
+  }
+
+  testGluten("Test Timestamps before epoch") {
+    withTempPath { path =>
+      val ts = Timestamp.valueOf("1900-05-05 12:34:56.000789")
+      Seq(ts).toDF.write.orc(path.getCanonicalPath)
+      checkAnswer(spark.read.orc(path.getCanonicalPath), Row(ts))
+    }
+  }
+
+  testGluten("Test Timestamps after epoch") {
+    withTempPath { path =>
+      val ts = Timestamp.valueOf("2016-05-05 12:34:56.000789")
+      Seq(ts).toDF.write.orc(path.getCanonicalPath)
+      checkAnswer(spark.read.orc(path.getCanonicalPath), Row(ts))
     }
   }
 

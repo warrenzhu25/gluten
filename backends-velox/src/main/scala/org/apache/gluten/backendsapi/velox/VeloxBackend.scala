@@ -170,7 +170,9 @@ object VeloxBackendSettings extends BackendSettingsApi {
               case StructField(_, stringType: StringType, _, metadata)
                   if isCharType(stringType, metadata) =>
                 CharVarcharUtils.getRawTypeString(metadata) + "(force fallback)"
-              case StructField(_, TimestampType, _, _) => "TimestampType"
+              case StructField(_, TimestampType, _, _)
+                  if GlutenConfig.get.forceOrcTimestampTypeScanFallbackEnabled =>
+                "TimestampType is set to fallback"
             }
             validateTypes(typeValidator)
           }

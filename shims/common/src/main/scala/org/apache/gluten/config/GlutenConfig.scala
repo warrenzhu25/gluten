@@ -982,14 +982,14 @@ object GlutenConfig {
       .internal()
       .doc("Fallback to row operators if there are several continuous joins.")
       .intConf
-      .createWithDefault(12)
+      .createWithDefault(18)
 
   val COLUMNAR_PHYSICAL_JOIN_OPTIMIZATION_ENABLED =
     buildConf("spark.gluten.sql.columnar.physicalJoinOptimizeEnable")
       .internal()
       .doc("Enable or disable columnar physicalJoinOptimize.")
       .booleanConf
-      .createWithDefault(false)
+      .createWithDefault(true)
 
   val COLUMNAR_SCAN_ONLY_ENABLED =
     buildConf("spark.gluten.sql.columnar.scanOnly")

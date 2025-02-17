@@ -37,10 +37,10 @@ class GlutenHiveSQLQuerySuite extends GlutenHiveSQLQuerySuiteBase {
   Seq("parquet", "orc").foreach { format =>
     testGluten(s"$format file with CHAR") {
       sql(s"DROP TABLE IF EXISTS test_$format")
-      sql(s"CREATE TABLE test_orc (c10 char(10), s string, c7 char(7)) USING hive OPTIONS(fileFormat '$format')")
-      sql("INSERT INTO test_orc VALUES('test ', 'test ', 'test ')")
+      sql(s"CREATE TABLE test_$format (c10 char(10), s string, c7 char(7)) USING hive OPTIONS(fileFormat '$format')")
+      sql(s"INSERT INTO test_$format VALUES('test ', 'test ', 'test ')")
 
-      val df = spark.table("test_orc")
+      val df = spark.table(s"test_$format")
       checkAnswer(df,  Row("test      ", "test ", "test   "))
 
       val hasSparkPlan = df.queryExecution.executedPlan.collect {

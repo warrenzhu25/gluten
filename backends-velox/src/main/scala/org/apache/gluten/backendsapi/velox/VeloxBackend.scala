@@ -153,6 +153,13 @@ object VeloxBackendSettings extends BackendSettingsApi {
         case OrcReadFormat =>
           if (!VeloxConfig.get.veloxOrcScanEnabled) {
             Some(s"Velox ORC scan is turned off, ${VeloxConfig.VELOX_ORC_SCAN_ENABLED.key}")
+          } else if (GlutenConfig.get.enableOrcComplexTypeScan) {
+            val typeValidator: PartialFunction[StructField, String] = {
+              case StructField(_, TimestampType, _, _)
+                  if GlutenConfig.get.forceOrcTimestampTypeScanFallbackEnabled =>
+                "TimestampType is set to fallback"
+            }
+            validateTypes(typeValidator)
           } else {
             val typeValidator: PartialFunction[StructField, String] = {
               case StructField(_, arrayType: ArrayType, _, _)

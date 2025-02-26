@@ -117,6 +117,10 @@ class GlutenConfig(conf: SQLConf) extends Logging {
   def enableExtendedColumnPruning: Boolean =
     getConf(ENABLE_EXTENDED_COLUMN_PRUNING)
 
+  // Temporary property till complexTypes for parquet etc. are also enabled.
+  def enableOrcComplexTypeScan: Boolean =
+    getConf(VELOX_ENABLE_ORC_COMPLEX_TYPE_SCAN)
+
   def forceOrcCharTypeScanFallbackEnabled: Boolean =
     getConf(VELOX_FORCE_ORC_CHAR_TYPE_SCAN_FALLBACK)
 
@@ -1603,6 +1607,13 @@ object GlutenConfig {
       .doc("When true, Gluten will inject native plan tree to Spark's explain output.")
       .booleanConf
       .createWithDefault(false)
+
+  val VELOX_ENABLE_ORC_COMPLEX_TYPE_SCAN =
+    buildConf("spark.gluten.sql.orc.complexType.scan.enabled")
+      .internal()
+      .doc("Enable scan for only orc Complex Type")
+      .booleanConf
+      .createWithDefault(true)
 
   val VELOX_FORCE_ORC_CHAR_TYPE_SCAN_FALLBACK =
     buildConf("spark.gluten.sql.orc.charType.scan.fallback.enabled")

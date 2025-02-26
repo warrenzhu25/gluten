@@ -941,6 +941,7 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenParquetFileMetadataStructRowIndexSuite]
   enableSuite[GlutenTableLocationSuite]
   enableSuite[GlutenRemoveRedundantWindowGroupLimitsSuite]
+  enableSuite[GlutenOrcComplexTypeSuite]
 
   override def getSQLQueryTestSettings: SQLQueryTestSettings = VeloxSQLQueryTestSettings
 }

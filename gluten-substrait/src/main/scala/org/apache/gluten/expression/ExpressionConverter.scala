@@ -17,6 +17,7 @@
 package org.apache.gluten.expression
 
 import org.apache.gluten.backendsapi.BackendsApiManager
+import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.exception.GlutenNotSupportException
 import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.test.TestStats
@@ -29,7 +30,7 @@ import org.apache.spark.sql.catalyst.expressions.{StringTrimBoth, _}
 import org.apache.spark.sql.catalyst.expressions.objects.StaticInvoke
 import org.apache.spark.sql.catalyst.optimizer.NormalizeNaNAndZero
 import org.apache.spark.sql.catalyst.util.CharVarcharCodegenUtils
-import org.apache.spark.sql.execution.ScalarSubquery
+import org.apache.spark.sql.execution.{InSubqueryExec, ScalarSubquery}
 import org.apache.spark.sql.hive.HiveUDFTransformer
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
@@ -141,6 +142,13 @@ object ExpressionConverter extends SQLConfHelper with Logging {
         s"name: ${expr.prettyName}")
 
     expr match {
+      case dp: DynamicPruningExpression
+          if GlutenConfig.get.dataprocRuntimeInFilterEnabled && dp.child
+            .isInstanceOf[InSubqueryExec] =>
+        return DynamicPruningExpressionTransformer(
+          getAndCheckSubstraitName(dp.child, expressionsMap),
+          dp,
+          attributeSeq)
       case p: PythonUDF =>
         return replacePythonUDFWithExpressionTransformer(p, attributeSeq, expressionsMap)
       case s: ScalaUDF =>

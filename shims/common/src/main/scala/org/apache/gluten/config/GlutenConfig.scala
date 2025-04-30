@@ -363,6 +363,20 @@ class GlutenConfig(conf: SQLConf) extends Logging {
   def enableColumnarRange: Boolean = getConf(COLUMNAR_RANGE_ENABLED)
 
   def enableColumnarCollectLimit: Boolean = getConf(COLUMNAR_COLLECT_LIMIT_ENABLED)
+
+  // Copying configs and their defaults from SQLConf
+  def dataprocRuntimeInFilterEnabled: Boolean =
+    conf
+      .getConfString("spark.dataproc.runtime.in.filter.enabled", "false")
+      .equalsIgnoreCase("true") &&
+      conf
+        .getConfString("spark.dataproc.enhanced.optimizer.enabled", "false")
+        .equalsIgnoreCase("true")
+
+  def dataprocRuntimeInFilterRowCountThreshold: Int =
+    Integer.valueOf(
+      conf
+        .getConfString("spark.dataproc.runtime.in.filter.row.count.threshold", "10000"))
 }
 
 object GlutenConfig {

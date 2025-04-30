@@ -24,7 +24,7 @@ import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.spark.sql.catalyst.expressions.{StringTrimBoth, _}
 import org.apache.spark.sql.catalyst.expressions.aggregate._
 import org.apache.spark.sql.catalyst.optimizer.NormalizeNaNAndZero
-import org.apache.spark.sql.execution.ScalarSubquery
+import org.apache.spark.sql.execution.{InSubqueryExec, ScalarSubquery}
 
 object ExpressionMappings {
 
@@ -283,6 +283,7 @@ object ExpressionMappings {
     Sig[CaseWhen](CASE_WHEN),
     Sig[In](IN),
     Sig[InSet](IN_SET),
+    Sig[InSubqueryExec](IN_SET),
     Sig[ScalarSubquery](SCALAR_SUBQUERY),
     Sig[DynamicPruningExpression](DYNAMIC_PRUNING_EXPRESSION),
     Sig[CheckOverflow](CHECK_OVERFLOW),

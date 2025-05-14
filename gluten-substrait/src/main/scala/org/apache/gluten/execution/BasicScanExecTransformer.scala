@@ -140,6 +140,7 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
     }.asJava
     // Will put all filter expressions into an AND expression
     val transformer = filterExprs()
+      .filterNot(_ == DynamicPruningExpression(Literal.TrueLiteral))
       .map(ExpressionConverter.replaceAttributeReference)
       .reduceLeftOption(And)
       .map(ExpressionConverter.replaceWithExpressionTransformer(_, output))

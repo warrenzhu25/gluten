@@ -68,7 +68,7 @@ case class FileSourceScanExecTransformer(
         output),
       optionalBucketSet,
       optionalNumCoalescedBuckets,
-      QueryPlan.normalizePredicates(dataFilters, output),
+      QueryPlan.normalizePredicates(filterUnusedDynamicPruningExpressions(dataFilters), output),
       None,
       disableBucketedScan
     )

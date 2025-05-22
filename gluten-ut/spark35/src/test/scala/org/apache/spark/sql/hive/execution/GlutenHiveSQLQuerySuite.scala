@@ -16,7 +16,8 @@
  */
 package org.apache.spark.sql.hive.execution
 
-import org.apache.gluten.extension.GlutenPlan
+import org.apache.gluten.execution.GlutenPlan
+
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.TableIdentifier
@@ -34,46 +35,51 @@ class GlutenHiveSQLQuerySuite extends GlutenHiveSQLQuerySuiteBase {
       .set("spark.memory.offHeap.size", "1024MB")
   }
 
-  Seq("parquet", "orc").foreach { format =>
-    testGluten(s"$format file with CHAR") {
-      sql(s"DROP TABLE IF EXISTS test_$format")
-      sql(s"CREATE TABLE test_$format (c10 char(10), s string, c7 char(7)) USING hive OPTIONS(fileFormat '$format')")
-      sql(s"INSERT INTO test_$format VALUES('test ', 'test ', 'test ')")
+  Seq("parquet", "orc").foreach {
+    format =>
+      testGluten(s"$format file with CHAR") {
+        sql(s"DROP TABLE IF EXISTS test_$format")
+        sql(
+          s"CREATE TABLE test_$format (c10 char(10), s string, c7 char(7)) " +
+            s"USING hive OPTIONS(fileFormat '$format')")
+        sql(s"INSERT INTO test_$format VALUES('test ', 'test ', 'test ')")
 
-      val df = spark.table(s"test_$format")
-      checkAnswer(df,  Row("test      ", "test ", "test   "))
+        val df = spark.table(s"test_$format")
+        checkAnswer(df, Row("test      ", "test ", "test   "))
 
-      val hasSparkPlan = df.queryExecution.executedPlan.collect {
-        case p if !p.isInstanceOf[GlutenPlan] => p
-      }.nonEmpty
+        val hasSparkPlan = df.queryExecution.executedPlan.collect {
+          case p if !p.isInstanceOf[GlutenPlan] => p
+        }.nonEmpty
 
-      assert(!hasSparkPlan)
+        assert(!hasSparkPlan)
 
-      spark.sessionState.catalog.dropTable(
-        TableIdentifier(s"test_$format"),
-        ignoreIfNotExists = true,
-        purge = false)
-    }
+        spark.sessionState.catalog.dropTable(
+          TableIdentifier(s"test_$format"),
+          ignoreIfNotExists = true,
+          purge = false)
+      }
 
-    testGluten(s"$format file with VARCHAR") {
-      sql(s"DROP TABLE IF EXISTS test_$format")
-      sql(s"CREATE TABLE test_$format (vc10 varchar(10), s string, vc7 varchar(7)) USING hive OPTIONS(fileFormat '$format')")
-      sql(s"INSERT INTO test_$format VALUES('test ', 'test ', 'test ')")
+      testGluten(s"$format file with VARCHAR") {
+        sql(s"DROP TABLE IF EXISTS test_$format")
+        sql(
+          s"CREATE TABLE test_$format (vc10 varchar(10), s string, vc7 varchar(7)) " +
+            s"USING hive OPTIONS(fileFormat '$format')")
+        sql(s"INSERT INTO test_$format VALUES('test ', 'test ', 'test ')")
 
-      val df = spark.table(s"test_$format")
-      checkAnswer(df,  Row("test ", "test ", "test "))
+        val df = spark.table(s"test_$format")
+        checkAnswer(df, Row("test ", "test ", "test "))
 
-      val hasSparkPlan = df.queryExecution.executedPlan.collect {
-        case p if !p.isInstanceOf[GlutenPlan] => p
-      }.nonEmpty
+        val hasSparkPlan = df.queryExecution.executedPlan.collect {
+          case p if !p.isInstanceOf[GlutenPlan] => p
+        }.nonEmpty
 
-      assert(!hasSparkPlan)
+        assert(!hasSparkPlan)
 
-      spark.sessionState.catalog.dropTable(
-        TableIdentifier(s"test_$format"),
-        ignoreIfNotExists = true,
-        purge = false)
-    }
+        spark.sessionState.catalog.dropTable(
+          TableIdentifier(s"test_$format"),
+          ignoreIfNotExists = true,
+          purge = false)
+      }
   }
 
   testGluten("orc file with CHAR and string schema") {
@@ -81,25 +87,27 @@ class GlutenHiveSQLQuerySuite extends GlutenHiveSQLQuerySuiteBase {
     sql("CREATE TABLE t (c10 char(10), s string, c7 char(7)) USING hive OPTIONS(fileFormat 'orc')")
     sql("INSERT INTO t VALUES('test ', 'test ', 'test ')")
 
-    val path = spark.table("t").queryExecution.executedPlan
-      .collectFirst{
-        case f: FileSourceScanLike => f
-      }
+    val path = spark
+      .table("t")
+      .queryExecution
+      .executedPlan
+      .collectFirst { case f: FileSourceScanLike => f }
       .toSeq
       .flatMap(_.relation.location.rootPaths)
       .map(_.toString)
       .head
 
-    val customSchema = StructType(Array(
-      StructField("c10", StringType, nullable = true),
-      StructField("s", StringType, nullable = true),
-      StructField("c7", StringType, nullable = true)
-    ))
+    val customSchema = StructType(
+      Array(
+        StructField("c10", StringType, nullable = true),
+        StructField("s", StringType, nullable = true),
+        StructField("c7", StringType, nullable = true)
+      ))
 
     spark.read.schema(customSchema).orc(path).createOrReplaceTempView("test_orc")
 
     val df = spark.table("test_orc")
-    checkAnswer(df,  Row("test      ", "test ", "test   "))
+    checkAnswer(df, Row("test      ", "test ", "test   "))
 
     val hasSparkPlan = df.queryExecution.executedPlan.collect {
       case p if !p.isInstanceOf[GlutenPlan] => p

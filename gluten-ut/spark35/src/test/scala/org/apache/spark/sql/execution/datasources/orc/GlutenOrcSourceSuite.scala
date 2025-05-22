@@ -99,18 +99,20 @@ class GlutenOrcSourceSuite extends OrcSourceSuite with GlutenSQLTestsBaseTrait {
   }
 
   testGluten("Test Timestamps before epoch") {
-    withTempPath { path =>
-      val ts = Timestamp.valueOf("1900-05-05 12:34:56.000789")
-      Seq(ts).toDF.write.orc(path.getCanonicalPath)
-      checkAnswer(spark.read.orc(path.getCanonicalPath), Row(ts))
+    withTempPath {
+      path =>
+        val ts = Timestamp.valueOf("1900-05-05 12:34:56.000789")
+        Seq(ts).toDF.write.orc(path.getCanonicalPath)
+        checkAnswer(spark.read.orc(path.getCanonicalPath), Row(ts))
     }
   }
 
   testGluten("Test Timestamps after epoch") {
-    withTempPath { path =>
-      val ts = Timestamp.valueOf("2016-05-05 12:34:56.000789")
-      Seq(ts).toDF.write.orc(path.getCanonicalPath)
-      checkAnswer(spark.read.orc(path.getCanonicalPath), Row(ts))
+    withTempPath {
+      path =>
+        val ts = Timestamp.valueOf("2016-05-05 12:34:56.000789")
+        Seq(ts).toDF.write.orc(path.getCanonicalPath)
+        checkAnswer(spark.read.orc(path.getCanonicalPath), Row(ts))
     }
   }
 

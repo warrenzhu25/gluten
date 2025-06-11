@@ -26,7 +26,7 @@ CURRENT_DIR=$(cd "$(dirname "$BASH_SOURCE")"; pwd)
 GLUTEN_DIR="$CURRENT_DIR/.."
 BUILD_TYPE=Release
 BUILD_TESTS=OFF
-BUILD_EXAMPLES=OFF
+BUILD_EXAMPLES=ON
 BUILD_BENCHMARKS=OFF
 ENABLE_JEMALLOC_STATS=OFF
 BUILD_VELOX_TESTS=OFF
@@ -236,7 +236,7 @@ fi
 
 if [ "$JAVA_VERSION" == "8" ] \
   || [ "$JAVA_VERSION" == "11" ] \
-  || [ "JAVA_VERSION" == "17" ]; then
+  || [ "$JAVA_VERSION" == "17" ]; then
   echo "Build Java version: $JAVA_VERSION"
 else
   echo "Invalid Java version: $JAVA_VERSION"

@@ -285,6 +285,7 @@ void VeloxBackend::initConnector() {
   // Maps table field names to file field names using names, not indices.
   connectorConfMap[velox::connector::hive::HiveConfig::kParquetUseColumnNames] = "true";
   connectorConfMap[velox::connector::hive::HiveConfig::kOrcUseColumnNames] = "true";
+  connectorConfMap[velox::connector::hive::HiveConfig::kOrcUpdateDefaultColumnNamesOnly] = "true";
 
   connectorConfMap[velox::connector::hive::HiveConfig::kParquetRebaseLegacyTimestamp] =
       backendConf_->get<bool>(kParquetRebaseLegacyTimestampEnabled,

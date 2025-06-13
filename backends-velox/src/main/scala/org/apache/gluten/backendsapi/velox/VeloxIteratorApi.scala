@@ -55,7 +55,8 @@ class VeloxIteratorApi extends IteratorApi with Logging {
       partitionSchema: StructType,
       fileFormat: ReadFileFormat,
       metadataColumnNames: Seq[String],
-      properties: Map[String, String]): SplitInfo = {
+      properties: Map[String, String],
+      dataSchema: StructType): SplitInfo = {
     partition match {
       case f: FilePartition =>
         val (
@@ -70,7 +71,7 @@ class VeloxIteratorApi extends IteratorApi with Logging {
           constructSplitInfo(partitionSchema, f.files, metadataColumnNames)
         val preferredLocations =
           SoftAffinity.getFilePartitionLocations(f)
-        LocalFilesBuilder.makeLocalFiles(
+        val localFile = LocalFilesBuilder.makeLocalFiles(
           f.index,
           paths,
           starts,
@@ -84,6 +85,10 @@ class VeloxIteratorApi extends IteratorApi with Logging {
           mapAsJavaMap(properties),
           otherMetadataColumns
         )
+        if (fileFormat == ReadFileFormat.OrcReadFormat) {
+          localFile.setFileSchema(dataSchema)
+        }
+        localFile
       case _ =>
         throw new UnsupportedOperationException(s"Unsupported input partition.")
     }

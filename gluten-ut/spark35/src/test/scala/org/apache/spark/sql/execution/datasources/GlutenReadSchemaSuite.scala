@@ -21,6 +21,7 @@ import org.apache.gluten.config.GlutenConfig
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.GlutenSQLTestsBaseTrait
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.types.{StringType, StructField, StructType}
 
 import java.io.File
 
@@ -52,6 +53,42 @@ class GlutenVectorizedOrcReadSchemaSuite
   private lazy val floatDF = values.map(_.toFloat).toDF("col1")
   private lazy val doubleDF = values.map(_.toDouble).toDF("col1")
   private lazy val unionDF = floatDF.union(doubleDF)
+
+  test("read same orc file as two different tables with different column names") {
+    withTempPath {
+      dir =>
+        withSQLConf(SQLConf.ORC_VECTORIZED_READER_ENABLED.key -> "false") {
+          val path = dir.getCanonicalPath
+
+          val df1 = Seq(("1", "a"), ("2", "b"), ("3", "c")).toDF("_col0", "_col1")
+          val dir1 = s"$path${File.separator}part=one"
+
+          df1.write.format(format).options(options).save(dir1)
+
+          val newSchema = StructType(
+            Array(
+              StructField("count", StringType, nullable = true),
+              StructField("city", StringType, nullable = true)
+            ))
+
+          val original = spark.read
+            .schema(df1.schema)
+            .format(format)
+            .options(options)
+            .load(path)
+            .select("_col0", "_col1")
+
+          val dfWithNewSchema = spark.read
+            .schema(newSchema)
+            .format(format)
+            .options(options)
+            .load(path)
+            .select("count", "city")
+
+          checkAnswer(original, dfWithNewSchema)
+        }
+    }
+  }
 
   testGluten("change column position") {
     withTempPath {

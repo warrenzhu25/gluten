@@ -51,6 +51,8 @@ std::shared_ptr<SplitInfo> parseScanSplitInfo(
   splitInfo->partitionColumns.reserve(fileList.size());
   splitInfo->properties.reserve(fileList.size());
   splitInfo->metadataColumns.reserve(fileList.size());
+  std::vector<std::string> colNames;
+  std::vector<TypePtr> veloxTypes;
   for (const auto& file : fileList) {
     // Expect all Partitions share the same index.
     splitInfo->partitionIndex = file.partition_index();
@@ -96,6 +98,15 @@ std::shared_ptr<SplitInfo> parseScanSplitInfo(
       default:
         splitInfo->format = dwio::common::FileFormat::UNKNOWN;
         break;
+    }
+    if (splitInfo->format == dwio::common::FileFormat::ORC) {
+      if (colNames.empty() && file.has_schema()) {
+        const auto& tableSchema = file.schema();
+        colNames.reserve(tableSchema.names().size());
+        colNames = std::vector<std::string>(tableSchema.names().begin(), tableSchema.names().end());
+        veloxTypes = SubstraitParser::parseNamedStruct(tableSchema);
+      }
+      splitInfo->fileSchema = ROW(std::move(colNames), std::move(veloxTypes));
     }
   }
   return splitInfo;

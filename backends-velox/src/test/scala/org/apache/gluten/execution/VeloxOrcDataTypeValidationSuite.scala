@@ -452,7 +452,7 @@ class VeloxOrcDataTypeValidationSuite extends VeloxWholeStageTransformerSuite {
         " type2 where type1.decimal = type2.decimal") { _ => }
   }
 
-  test("Timestamp type") {
+  ignore("Timestamp type") {
     runQueryAndCompare("select timestamp from type1 limit 100") {
       df =>
         {

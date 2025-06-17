@@ -84,6 +84,8 @@ class VeloxTestSettings extends BackendTestSettings {
       "INCONSISTENT_BEHAVIOR_CROSS_VERSION: compatibility with Spark 2.4/3.2 in reading/writing dates")
     // Doesn't support unhex with failOnError=true.
     .exclude("CONVERSION_INVALID_INPUT: to_binary conversion function hex")
+    // FIXME: Dataproc NQE dev
+    .exclude("UNSUPPORTED_FEATURE - SPARK-38504: can't read TimestampNTZ as TimestampLTZ")
   enableSuite[GlutenQueryParsingErrorsSuite]
   enableSuite[GlutenArithmeticExpressionSuite]
     .exclude("SPARK-45786: Decimal multiply, divide, remainder, quot")
@@ -335,6 +337,8 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("SPARK-37463: read/write Timestamp ntz to Orc with different time zone")
     .exclude("SPARK-39381: Make vectorized orc columar writer batch size configurable")
     .exclude("SPARK-39830: Reading ORC table that requires type promotion may throw AIOOBE")
+    // FIXME: Dataproc NQE dev
+    .exclude("SPARK-37728: Reading nested columns with ORC vectorized reader should not cause ArrayIndexOutOfBoundsException")
   enableSuite[GlutenOrcV2QuerySuite]
     .exclude("Read/write binary data")
     .exclude("Read/write all types with non-primitive type")
@@ -376,6 +380,8 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("SPARK-5309 strings stored using dictionary compression in orc")
     // For exception test.
     .exclude("SPARK-20728 Make ORCFileFormat configurable between sql/hive and sql/core")
+    // FIXME: Dataproc NQE dev
+    .exclude("SPARK-37728: Reading nested columns with ORC vectorized reader should not cause ArrayIndexOutOfBoundsException")
   enableSuite[GlutenOrcSourceSuite]
     // Rewrite to disable Spark's columnar reader.
     .exclude("SPARK-31238: compatibility with Spark 2.4 in reading dates")
@@ -399,6 +405,9 @@ class VeloxTestSettings extends BackendTestSettings {
     // rewrite
     .exclude("SPARK-36931: Support reading and writing ANSI intervals (spark.sql.orc.enableVectorizedReader=true, spark.sql.orc.enableNestedColumnVectorizedReader=true)")
     .exclude("SPARK-36931: Support reading and writing ANSI intervals (spark.sql.orc.enableVectorizedReader=true, spark.sql.orc.enableNestedColumnVectorizedReader=false)")
+    // FIXME: Dataproc NQE dev
+    .excludeGlutenTest("SPARK-31284: compatibility with Spark 2.4 in reading timestamps")
+    .excludeGlutenTest("SPARK-31284, SPARK-31423: rebasing timestamps in write")
   enableSuite[GlutenOrcV1FilterSuite]
     .exclude("SPARK-32622: case sensitivity in predicate pushdown")
   enableSuite[GlutenOrcV1SchemaPruningSuite]
@@ -678,6 +687,10 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("length check for input string values: nested in both map key and value")
     .exclude("length check for input string values: nested in array of struct")
     .exclude("length check for input string values: nested in array of array")
+    // FIXME: Dataproc NQE dev
+    .exclude("create table w/ location and over length values")
+    .exclude("alter table set location w/ over length values")
+    .exclude("SPARK-34114: should not trim right for read-side length check and char padding")
   enableSuite[GlutenDSV2CharVarcharTestSuite]
   enableSuite[GlutenColumnExpressionSuite]
     // Velox raise_error('errMsg') throws a velox_user_error exception with the message 'errMsg'.

@@ -174,6 +174,7 @@ std::shared_ptr<facebook::velox::config::ConfigBase> getHiveConfig(
   auto gsAuthType = conf->get<std::string>("spark.hadoop.fs.gs.auth.type");
   if (gsAuthType.hasValue()) {
     std::string type = gsAuthType.value();
+    hiveConfMap[facebook::velox::connector::hive::HiveConfig::kGcsAuthType] = type;
     if (type == "SERVICE_ACCOUNT_JSON_KEYFILE") {
       auto gsAuthServiceAccountJsonKeyfile =
           conf->get<std::string>("spark.hadoop.fs.gs.auth.service.account.json.keyfile");

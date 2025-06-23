@@ -6,6 +6,7 @@ os_version="Debian12"
 volumes=()
 java_version="Java17"
 get_velox="OFF"
+build_type="Release"
 
 while getopts "v:o:j:dg" opt; do
   case $opt in
@@ -30,12 +31,9 @@ cd "$script_dir"
 ./host-scripts/build.sh "$os_version" "$java_version"
 
 # Get Velox
-./../../ep/build-velox/src/get_velox.sh --get_velox=$get_velox --setup_velox=OFF
+./../../ep/build-velox/src/get_velox.sh --get_velox=$get_velox --setup_velox=OFF  --velox_remove_local_changes=$get_velox
 
 # Start docker container
-./host-scripts/run.sh -t "build" -o $os_version -j $java_version $volume_args
+./host-scripts/run.sh -t "release" -o "$os_version" -j $java_version $volume_args
 
-# Ensure remove.sh is executed at the end
-trap "./host-scripts/remove.sh build-env-$os_version-$java_version" EXIT
-
-./host-scripts/package.sh "build-env-$os_version-$java_version" ${build_type:+--build_type=$build_type}
+./host-scripts/package.sh "release-env-$os_version-$java_version" ${build_type:+--build_type=$build_type}

@@ -1,5 +1,19 @@
 #!/bin/bash
 
-latest_container=$(docker ps --all --filter "name=dev-env-Debian12-" --format "{{.Names}}" | sort | tail -n 1)
+os_version="Debian12"
+java_version="Java17"
+env_type="dev"
 
-docker start $latest_container
+while getopts "o:j:r" opt; do
+  case $opt in
+    o) os_version="$OPTARG";;
+    j) java_version="$OPTARG";;
+    r) env_type="release";;
+    *) echo "Invalid option: -$OPTARG"; exit 1;;
+  esac
+done
+
+script_dir=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+storage_filepath="$script_dir/.container/$env_type-env-$os_version-$java_version"
+
+docker start $(cat "$storage_filepath")

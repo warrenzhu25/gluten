@@ -24,6 +24,14 @@ if [ -z "$os_version" ]; then
   exit 1
 fi
 
+script_dir=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+mkdir -p "$script_dir/../.container"
+container_name_with_timestamp="$env_type-env-$os_version-$java_version-$timestamp"
+storage_filename="$env_type-env-$os_version-$java_version"
+storage_filepath="$script_dir/../.container/$storage_filename"
+
+echo "$container_name_with_timestamp" > "$storage_filepath"
+
 mandatory_volumes=(
   "-v $HOME/.Xauthority:/root/.Xauthority"
   "-v /tmp/.X11-unix:/tmp/.X11-unix"
@@ -39,8 +47,8 @@ for volume in "${volumes[@]}"; do
   volume_args+=("-v" "$volume")
 done
 
-# Run the Docker container
+# Run the Docker container using the name from the file inside the .container directory
 docker run -d -e DISPLAY="${DISPLAY}" \
   ${volume_args[@]} \
   --network=host --privileged \
-  --name "$env_type-env-$os_version-$java_version-$timestamp" "env:$os_version-$java_version"
+  --name "$(cat "$storage_filepath")" "env:$os_version-$java_version"

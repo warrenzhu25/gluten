@@ -163,7 +163,7 @@ fi
 VELOX_SOURCE_DIR="${VELOX_HOME}"
 
 function checkout_code {
-  TARGET_BUILD_COMMIT="$(git ls-remote $VELOX_REPO $VELOX_BRANCH | awk '{print $1;}' | head -n 1)"
+  TARGET_BUILD_COMMIT="$(git ls-remote $VELOX_REPO $VELOX_BRANCH | grep "refs/heads/$VELOX_BRANCH" | awk '{print $1}')"
   if [ -d $VELOX_SOURCE_DIR ]; then
     echo "Velox source folder $VELOX_SOURCE_DIR already exists..."
     cd $VELOX_SOURCE_DIR

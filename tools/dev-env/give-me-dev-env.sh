@@ -27,7 +27,7 @@ cd "$script_dir"
 ./host-scripts/build.sh "$os_version" "$java_version"
 
 # Get Velox
-./../../ep/build-velox/src/get_velox.sh --get_velox=ON --setup_velox=OFF
+./../../ep/build-velox/src/get_velox.sh --get_velox=ON --setup_velox=OFF  --velox_remove_local_changes=ON
 
 # Start docker container
 ./host-scripts/run.sh -t "dev" -o "$os_version" -j $java_version $volume_args

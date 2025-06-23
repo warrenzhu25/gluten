@@ -45,6 +45,8 @@ VELOX_BRANCH=""
 VELOX_HOME=""
 VELOX_REMOVE_LOCAL_CHANGES=OFF
 VELOX_PARAMETER=""
+GET_VELOX=""
+SETUP_VELOX=""
 BUILD_ARROW=ON
 SPARK_VERSION=3.5
 SCALA_VERSION=2.12
@@ -167,6 +169,14 @@ do
         JAVA_VERSION=("${arg#*=}")
         shift # Remove argument name from processing
         ;;
+        --get_velox=*)
+        GET_VELOX=("${arg#*=}")
+        shift # Remove argument name from processing
+        ;;
+        --setup_velox=*)
+        SETUP_VELOX=("${arg#*=}")
+        shift # Remove argument name from processing
+        ;;
               *)
         OTHER_ARGUMENTS+=("$1")
         shift # Remove generic argument from processing
@@ -188,6 +198,14 @@ function concat_velox_param {
     # check velox home
     if [[ -n $VELOX_HOME ]]; then
         VELOX_PARAMETER+="--velox_home=$VELOX_HOME "
+    fi
+
+    if [[ -n $GET_VELOX ]]; then
+        VELOX_PARAMETER+="--get_velox=$GET_VELOX "
+    fi
+
+    if [[ -n $SETUP_VELOX ]]; then
+        VELOX_PARAMETER+="--setup_velox=$SETUP_VELOX "
     fi
 
     VELOX_PARAMETER+="--velox_remove_local_changes=$VELOX_REMOVE_LOCAL_CHANGES "

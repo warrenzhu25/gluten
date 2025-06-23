@@ -1,9 +1,19 @@
 #!/bin/bash
 
-latest_container=$(docker ps --filter "name=dev-env-Debian12-" --format "{{.Names}}" | sort | tail -n 1)
+os_version="Debian12"
+java_version="Java17"
+env_type="dev"
 
-if [ -z "$latest_container" ]; then
-  echo "No container running. If this is first time, run give-me-dev-env.sh. If this was run before but container is not running, run start.sh"
-else
-  docker exec -it $latest_container bash
-fi
+while getopts "o:j:r" opt; do
+  case $opt in
+    o) os_version="$OPTARG";;
+    j) java_version="$OPTARG";;
+    r) env_type="release";;
+    *) echo "Invalid option: -$OPTARG"; exit 1;;
+  esac
+done
+
+script_dir=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+storage_filepath="$script_dir/.container/$env_type-env-$os_version-$java_version"
+
+docker exec -it $(cat "$storage_filepath") bash

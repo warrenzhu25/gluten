@@ -2,6 +2,8 @@
 
 set -ex
 
-latest_container=$(docker ps --filter "name=$1" --format "{{.Names}}" | sort | tail -n 1)
+script_dir=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+storage_filepath="$script_dir/../.container/$1"
 
-docker rm -f $latest_container
+docker rm -f $(cat "$storage_filepath")
+rm -f $storage_filepath

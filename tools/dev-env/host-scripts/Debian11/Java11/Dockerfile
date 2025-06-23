@@ -22,7 +22,11 @@ RUN apt-get update && apt-get install -y \
     apt-transport-https \
     xclip \
     libre2-dev \
-    python3-pip
+    python3-pip \
+    ccache
+
+RUN /usr/sbin/update-ccache-symlinks
+ENV PATH="/usr/lib/ccache:${PATH}"
 
 WORKDIR /opt
 
@@ -33,12 +37,13 @@ RUN apt-get install -y temurin-11-jdk
 ENV JAVA_HOME="/usr/lib/jvm/temurin-11-jdk-amd64"
 
 #MAVEN
+ARG MAVEN_VERSION="3.9.10"
 WORKDIR /opt
-RUN wget https://dlcdn.apache.org/maven/maven-3/3.9.5/binaries/apache-maven-3.9.5-bin.tar.gz
-RUN tar xzf apache-maven-3.9.5-bin.tar.gz
-RUN rm apache-maven-3.9.5-bin.tar.gz
-ENV M2_HOME=/opt/apache-maven-3.9.5
-RUN update-alternatives --install /usr/bin/mvn mvn /opt/apache-maven-3.9.5/bin/mvn 900
+RUN wget https://dlcdn.apache.org/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz
+RUN tar xzf apache-maven-${MAVEN_VERSION}-bin.tar.gz
+RUN rm apache-maven-${MAVEN_VERSION}-bin.tar.gz
+ENV M2_HOME=/opt/apache-maven-${MAVEN_VERSION}
+RUN update-alternatives --install /usr/bin/mvn mvn /opt/apache-maven-${MAVEN_VERSION}/bin/mvn 900
 
 #PYTHON
 ENV PIP_BREAK_SYSTEM_PACKAGES=1

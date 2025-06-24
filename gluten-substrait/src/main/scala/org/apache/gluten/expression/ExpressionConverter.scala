@@ -710,6 +710,8 @@ object ExpressionConverter extends SQLConfHelper with Logging {
           Seq(replaceWithExpressionTransformer0(c.child, attributeSeq, expressionsMap)),
           c
         )
+      case _: StructsToJson =>
+        throw new GlutenNotSupportException("to_json not supported in Gluten.")
       case t: TransformKeys =>
         // default is `EXCEPTION`
         val mapKeyDedupPolicy = SQLConf.get.getConf(SQLConf.MAP_KEY_DEDUP_POLICY)

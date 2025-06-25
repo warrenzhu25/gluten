@@ -1,9 +1,31 @@
 #!/bin/bash
 set -ex
+
 PATH_TO_CURRENT_DIR=$(dirname $0)
+source "${PATH_TO_CURRENT_DIR}"/jar_util.sh
 
-chmod 755 /tmpfs/src/git/incubator-gluten/tools/dev-env/give-me-jar.sh
-/bin/bash /tmpfs/src/git/incubator-gluten/tools/dev-env/give-me-jar.sh -v /tmpfs/src/git/velox/:/root/incubator-gluten/ep/build-velox/build/velox_ep/ -o ${OS_VERSION} -g OFF
+echo "Running as " "$(whoami)"
 
-gsutil cp /tmpfs/src/git/incubator-gluten/package/target/gluten-velox-bundle-spark3.5_2.13-*.jar gs://nqe-release-jars/native-s8s-2.2/${OS_VERSION}/
-gsutil cp /tmpfs/src/git/incubator-gluten/package/target/thirdparty-lib/gluten-thirdparty-lib-*.jar gs://nqe-release-jars/native-s8s-2.2/${OS_VERSION}/
+download_maven
+
+JAVA_VERSION="Java17"
+SPARK_VERSION="3.5"
+SCALA_VERSION="2.13"
+
+build_jars "${OS_VERSION}" "${JAVA_VERSION}" "${SPARK_VERSION}" "${SCALA_VERSION}"
+
+TODAY=$(date +%Y%m%d-%H%M)
+VERSION="1.4.0-${TODAY}"
+DESCRIPTION="Gluten 1.4 with Spark ${SPARK_VERSION} jars for s8s-2.2"
+THIRD_PARTY_JAR="gluten-thirdparty-lib-debian-12-x86_64.jar"
+VELOX_BUNDLE_JAR="gluten-velox-bundle-spark${SPARK_VERSION}_${SCALA_VERSION}-debian_12_x86_64-1.4.0.jar"
+
+# Upload to Dataproc Artifact Registry
+if [ "$PUBLISH_JARS" == "yes" ]; then
+  cp "${GLUTEN_DIR}"/package/target/thirdparty-lib/"${THIRD_PARTY_JAR}" "${BASE_DIR}"
+  cp "${GLUTEN_DIR}"/package/target/"${VELOX_BUNDLE_JAR}" "${BASE_DIR}"
+
+  cd "${GLUTEN_DIR}"
+  upload_jar "s8s-2.2-thirdparty-lib-Debian12" "${VERSION}" "${DESCRIPTION}" "${BASE_DIR}/${THIRD_PARTY_JAR}"
+  upload_jar "s8s-2.2-velox-bundle-Debian12" "${VERSION}" "${DESCRIPTION}" "${BASE_DIR}/${VELOX_BUNDLE_JAR}"
+fi

@@ -6,12 +6,16 @@ os_version="Debian12"
 volumes=()
 java_version="Java17"
 get_velox="OFF"
+spark_version="3.5"
+scala_version="2.12"
 
-while getopts "v:o:j:dg" opt; do
+while getopts "v:o:j:c:s:dg" opt; do
   case $opt in
     v) volumes+=("$OPTARG");;
     o) os_version="$OPTARG";;
     j) java_version="$OPTARG";;
+    c) scala_version="$OPTARG";;
+    s) spark_version="$OPTARG";;
     d) build_type="Debug";;
     g) get_velox="ON";;
     *) echo "Invalid option: -$OPTARG"; exit 1;;
@@ -38,4 +42,5 @@ cd "$script_dir"
 # Ensure remove.sh is executed at the end
 trap "./host-scripts/remove.sh build-env-$os_version-$java_version" EXIT
 
-./host-scripts/package.sh "build-env-$os_version-$java_version" ${build_type:+--build_type=$build_type}
+./host-scripts/package.sh "build-env-$os_version-$java_version" ${build_type:+--build_type=$build_type} \
+  ${spark_version:+--spark_version=$spark_version} ${scala_version:+--scala_version=$scala_version}

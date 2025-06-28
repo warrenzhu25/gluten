@@ -41,7 +41,7 @@ case class RewrittenNodeWall(originalChild: SparkPlan) extends LeafExecNode {
  *
  * Note that, this rule does not touch and tag these operators who does not need to rewrite.
  */
-class RewriteSparkPlanRulesManager private (
+class RewriteSparkPlanRulesManager(
     validateRule: Rule[SparkPlan],
     rewriteRules: Seq[RewriteSingleNode])
   extends Rule[SparkPlan] {
@@ -80,42 +80,45 @@ class RewriteSparkPlanRulesManager private (
     }
   }
 
-  override def apply(plan: SparkPlan): SparkPlan = {
-    plan.transformUp {
-      case origin if mayNeedRewrite(origin) =>
-        // Add a wall to avoid transforming unnecessary nodes.
-        val withWall = origin.mapChildren(RewrittenNodeWall)
-        val (rewrittenPlan, error) = applyRewriteRules(withWall)
-        if (error.isDefined) {
-          // Return origin if there is an exception during rewriting rules.
-          // Note, it is not expected, but it happens in CH backend when pulling out
-          // aggregate.
-          // TODO: Fix the exception and remove this branch
-          FallbackTags.add(origin, error.get)
-          origin
-        } else if (withWall.fastEquals(rewrittenPlan)) {
-          // Return origin if the rewrite rules do nothing.
-          // We do not add tag and leave it to the outside `AddFallbackTagRule`.
+  def rewrite: PartialFunction[SparkPlan, SparkPlan] = {
+    case origin if mayNeedRewrite(origin) =>
+      // Add a wall to avoid transforming unnecessary nodes.
+      val withWall = origin.mapChildren(RewrittenNodeWall)
+      val (rewrittenPlan, error) = applyRewriteRules(withWall)
+      if (error.isDefined) {
+        // Return origin if there is an exception during rewriting rules.
+        // Note, it is not expected, but it happens in CH backend when pulling out
+        // aggregate.
+        // TODO: Fix the exception and remove this branch
+        FallbackTags.add(origin, error.get)
+        origin
+      } else if (withWall.fastEquals(rewrittenPlan)) {
+        // Return origin if the rewrite rules do nothing.
+        // We do not add tag and leave it to the outside `AddFallbackTagRule`.
+        origin
+      } else {
+        validateRule.apply(rewrittenPlan)
+        val tag = getFallbackTagBack(rewrittenPlan)
+        if (tag.isDefined) {
+          // If the rewritten plan is still not transformable, return the original plan.
+          FallbackTags.add(origin, tag.get)
           origin
         } else {
-          validateRule.apply(rewrittenPlan)
-          val tag = getFallbackTagBack(rewrittenPlan)
-          if (tag.isDefined) {
-            // If the rewritten plan is still not transformable, return the original plan.
-            FallbackTags.add(origin, tag.get)
-            origin
-          } else {
-            rewrittenPlan.transformUp {
-              case wall: RewrittenNodeWall => wall.originalChild
-              case p if p.logicalLink.isEmpty =>
-                // Add logical link to pull out project to make fallback reason work,
-                // see `GlutenFallbackReporter`.
-                origin.logicalLink.foreach(p.setLogicalLink)
-                p
-            }
+          rewrittenPlan.transformUp {
+            case wall: RewrittenNodeWall => wall.originalChild
+            case p if p.logicalLink.isEmpty =>
+              // Add logical link to pull out project to make fallback reason work,
+              // see `GlutenFallbackReporter`.
+              origin.logicalLink.foreach(p.setLogicalLink)
+              p
           }
         }
-    }
+      }
+
+  }
+
+  override def apply(plan: SparkPlan): SparkPlan = {
+    plan.transformUp(rewrite)
   }
 }
 

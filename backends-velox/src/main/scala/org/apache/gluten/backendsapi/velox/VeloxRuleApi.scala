@@ -85,8 +85,14 @@ object VeloxRuleApi {
         PullOutPreProject,
         PullOutPostProject,
         ProjectColumnPruning)
-    injector.injectTransform(
-      c => HeuristicTransform.WithRewrites(validatorBuilder(c.glutenConf), rewrites, offloads))
+    injector.injectTransform {
+      c =>
+        if (c.glutenConf.enablePessimisticFallback) {
+          PessimisticTransformer(validatorBuilder(c.glutenConf), rewrites, offloads)
+        } else {
+          HeuristicTransform.WithRewrites(validatorBuilder(c.glutenConf), rewrites, offloads)
+        }
+    }
 
     // Legacy: Post-transform rules.
     injector.injectPostTransform(_ => UnionTransformerRule())

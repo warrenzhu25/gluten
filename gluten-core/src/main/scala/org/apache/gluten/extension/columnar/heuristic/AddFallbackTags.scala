@@ -32,7 +32,7 @@ case class AddFallbackTags(validator: Validator) extends Rule[SparkPlan] {
     plan
   }
 
-  private def addFallbackTag(plan: SparkPlan): Unit = {
+  def addFallbackTag(plan: SparkPlan): Unit = {
     val outcome = validator.validate(plan)
     outcome match {
       case Validator.Failed(reason) =>

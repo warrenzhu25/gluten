@@ -269,6 +269,8 @@ class GlutenConfig(conf: SQLConf) extends Logging {
   // Options used by RAS.
   def enableRas: Boolean = getConf(RAS_ENABLED)
 
+  def enablePessimisticFallback: Boolean = getConf(PESSIMISTIC_FALLBACK)
+
   def rasCostModel: String = getConf(RAS_COST_MODEL)
 
   def cartesianProductTransformerEnabled: Boolean =
@@ -1294,6 +1296,15 @@ object GlutenConfig {
           "planning to generate more efficient query plan. Note, this feature doesn't bring " +
           "performance profits by default. Try exploring option `spark.gluten.ras.costModel` " +
           "for advanced usage.")
+      .booleanConf
+      .createWithDefault(false)
+
+  val PESSIMISTIC_FALLBACK =
+    buildConf("spark.dataproc.gluten.pessimisticFallback.enabled")
+      .doc(
+        "Only allow continuous chains of Gluten supported operators from the leaves. If there" +
+          " is a non supported operator in the plan, fallback all parent operators of that " +
+          "node.")
       .booleanConf
       .createWithDefault(false)
 

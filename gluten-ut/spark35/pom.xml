@@ -144,6 +144,18 @@
           <version>2.2.220</version>
           <scope>test</scope>
         </dependency>
+        <dependency>
+          <groupId>com.google.cloud.spark</groupId>
+          <artifactId>spark-3.5-bigquery</artifactId>
+          <version>0.36.4</version>
+          <scope>test</scope>
+          <exclusions>
+            <exclusion>
+              <groupId>com.google.cloud.spark</groupId>
+              <artifactId>spark-bigquery-dsv2-common</artifactId>
+            </exclusion>
+          </exclusions>
+        </dependency>
       </dependencies>
       <properties>
         <slf4j.version>2.0.6</slf4j.version>

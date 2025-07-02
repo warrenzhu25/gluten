@@ -83,7 +83,7 @@
         <activeByDefault>false</activeByDefault>
       </activation>
       <properties>
-<!--        The version should be same with the version in assertj-core-->
+        <!--        The version should be same with the version in assertj-core-->
         <byte-buddy.version>1.14.18</byte-buddy.version>
       </properties>
       <dependencies>
@@ -281,6 +281,41 @@
           </plugin>
         </plugins>
       </build>
+    </profile>
+    <profile>
+      <id>bigquery</id>
+      <dependencies>
+        <dependency>
+          <groupId>org.apache.gluten</groupId>
+          <artifactId>gluten-bigquery</artifactId>
+          <version>${project.version}</version>
+        </dependency>
+        <dependency>
+          <groupId>org.apache.gluten</groupId>
+          <artifactId>gluten-bigquery</artifactId>
+          <version>${project.version}</version>
+          <type>test-jar</type>
+          <scope>test</scope>
+        </dependency>
+        <dependency>
+          <groupId>com.google.cloud.spark</groupId>
+          <artifactId>spark-3.5-bigquery</artifactId>
+          <version>0.36.4</version>
+          <scope>test</scope>
+          <exclusions>
+            <exclusion>
+              <groupId>com.google.cloud.spark</groupId>
+              <artifactId>spark-bigquery-dsv2-common</artifactId>
+            </exclusion>
+          </exclusions>
+        </dependency>
+        <dependency>
+          <groupId>org.apache.spark</groupId>
+          <artifactId>spark-mllib_${scala.binary.version}</artifactId>
+          <version>${spark.version}</version>
+          <scope>test</scope>
+        </dependency>
+      </dependencies>
     </profile>
   </profiles>
 

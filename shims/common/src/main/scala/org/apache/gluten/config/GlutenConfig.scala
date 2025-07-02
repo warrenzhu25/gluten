@@ -373,6 +373,8 @@ class GlutenConfig(conf: SQLConf) extends Logging {
 
   def enableColumnarCollectLimit: Boolean = getConf(COLUMNAR_COLLECT_LIMIT_ENABLED)
 
+  def enableBigQueryDirectRead: Boolean = getConf(VELOX_BIGQUERY_DIRECT_READ)
+
   // Copying configs and their defaults from SQLConf
   def dataprocRuntimeInFilterEnabled: Boolean =
     conf
@@ -1769,4 +1771,11 @@ object GlutenConfig {
       .doc("If enabled, legacy timestamp will be rebased while reading parquet files")
       .booleanConf
       .createWithDefault(false)
+
+  val VELOX_BIGQUERY_DIRECT_READ =
+    buildConf("spark.dataproc.gluten.bigquery.supportDirectRead")
+      .internal()
+      .doc("Support direct reading for bigquery arrow buffers from the connector")
+      .booleanConf
+      .createWithDefault(true)
 }

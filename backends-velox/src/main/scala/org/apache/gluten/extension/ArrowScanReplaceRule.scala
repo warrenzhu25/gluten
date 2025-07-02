@@ -31,7 +31,7 @@ case class ArrowScanReplaceRule(spark: SparkSession) extends Rule[SparkPlan] {
       case plan: FileSourceScanExec if plan.relation.fileFormat.isInstanceOf[ArrowCSVFileFormat] =>
         ArrowFileSourceScanExec(plan)
       case plan: BatchScanExec if plan.scan.isInstanceOf[ArrowCSVScan] =>
-        ArrowBatchScanExec(plan)
+        ArrowBatchScanExec(plan, plan.output, plan.runtimeFilters)
       case plan: BatchScanExec => plan
       case p => p
     }

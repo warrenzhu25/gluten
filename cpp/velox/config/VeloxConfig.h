@@ -157,4 +157,9 @@ const std::string kQueryTraceTaskRegExp = "spark.gluten.sql.columnar.backend.vel
 /// defined by the underlying file system.
 const std::string kOpTraceDirectoryCreateConfig =
     "spark.gluten.sql.columnar.backend.velox.opTraceDirectoryCreateConfig";
+
+// timestamp
+const std::string kParquetRebaseLegacyTimestampEnabled =
+  "spark.gluten.velox.rebaseParquetLegacyTimestamp.enabled";
+const bool kParquetRebaseLegacyTimestampEnabledDefault = false;
 } // namespace gluten

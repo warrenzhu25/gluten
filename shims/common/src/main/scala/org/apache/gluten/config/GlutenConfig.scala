@@ -1752,4 +1752,10 @@ object GlutenConfig {
       .booleanConf
       .createWithDefault(true)
 
+  val VELOX_REBASE_PARQUET_LEGACY_TIMESTAMP =
+    buildStaticConf("spark.gluten.velox.rebaseParquetLegacyTimestamp.enabled")
+      .internal()
+      .doc("If enabled, legacy timestamp will be rebased while reading parquet files")
+      .booleanConf
+      .createWithDefault(false)
 }

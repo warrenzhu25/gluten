@@ -33,10 +33,14 @@ import scala.collection.JavaConverters._
 
 object SparkMemoryUtil {
   private val mmClazz = classOf[MemoryManager]
-  private val smpField = mmClazz.getDeclaredField("offHeapStorageMemoryPool")
-  private val empField = mmClazz.getDeclaredField("offHeapExecutionMemoryPool")
-  smpField.setAccessible(true)
-  empField.setAccessible(true)
+  private val offSMPField = mmClazz.getDeclaredField("offHeapStorageMemoryPool")
+  private val offEMPField = mmClazz.getDeclaredField("offHeapExecutionMemoryPool")
+  offSMPField.setAccessible(true)
+  offEMPField.setAccessible(true)
+  private val onSMPField = mmClazz.getDeclaredField("onHeapStorageMemoryPool")
+  private val onEMPField = mmClazz.getDeclaredField("onHeapExecutionMemoryPool")
+  onSMPField.setAccessible(true)
+  onEMPField.setAccessible(true)
 
   private val tmmClazz = classOf[TaskMemoryManager]
   private val consumersField = tmmClazz.getDeclaredField("consumers")
@@ -51,8 +55,15 @@ object SparkMemoryUtil {
   // We assume storage memory can be fully transferred to execution memory so far
   def getCurrentAvailableOffHeapMemory: Long = {
     val mm = SparkEnv.get.memoryManager
-    val smp = smpField.get(mm).asInstanceOf[StorageMemoryPool]
-    val emp = empField.get(mm).asInstanceOf[ExecutionMemoryPool]
+    val smp = offSMPField.get(mm).asInstanceOf[StorageMemoryPool]
+    val emp = offEMPField.get(mm).asInstanceOf[ExecutionMemoryPool]
+    smp.memoryFree + emp.memoryFree
+  }
+
+  def getCurrentAvailableOnHeapMemory: Long = {
+    val mm = SparkEnv.get.memoryManager
+    val smp = onSMPField.get(mm).asInstanceOf[StorageMemoryPool]
+    val emp = onEMPField.get(mm).asInstanceOf[ExecutionMemoryPool]
     smp.memoryFree + emp.memoryFree
   }
 
@@ -129,9 +140,7 @@ object SparkMemoryUtil {
 
       override def visit(
           dynamicOffHeapSizingMemoryTarget: DynamicOffHeapSizingMemoryTarget): String = {
-        prettyPrintStats(
-          "Dynamic off-heap sizing memory target stats: ",
-          dynamicOffHeapSizingMemoryTarget)
+        dynamicOffHeapSizingMemoryTarget.delegated.accept(this)
       }
 
       override def visit(retryOnOomMemoryTarget: RetryOnOomMemoryTarget): String = {

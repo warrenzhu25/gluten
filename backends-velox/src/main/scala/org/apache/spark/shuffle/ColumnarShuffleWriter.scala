@@ -116,9 +116,17 @@ class ColumnarShuffleWriter[K, V](
   private val shuffleWriterType: String =
     if (isSort) ReservedKeys.GLUTEN_SORT_SHUFFLE_WRITER else ReservedKeys.GLUTEN_HASH_SHUFFLE_WRITER
 
-  private def availableOffHeapPerTask(): Long = {
+  private def availableMemoryPerTask(): Long = {
     val perTask =
-      SparkMemoryUtil.getCurrentAvailableOffHeapMemory / SparkResourceUtil.getTaskSlots(conf)
+      if (
+        conf.getBoolean(
+          GlutenConfig.DYNAMIC_OFFHEAP_SIZING_ENABLED.key,
+          GlutenConfig.DYNAMIC_OFFHEAP_SIZING_ENABLED.defaultValue.get)
+      ) {
+        SparkMemoryUtil.getCurrentAvailableOnHeapMemory / SparkResourceUtil.getTaskSlots(conf)
+      } else {
+        SparkMemoryUtil.getCurrentAvailableOffHeapMemory / SparkResourceUtil.getTaskSlots(conf)
+      }
     perTask
   }
 
@@ -179,7 +187,7 @@ class ColumnarShuffleWriter[K, V](
             })
         }
         val startTime = System.nanoTime()
-        jniWrapper.write(nativeShuffleWriter, rows, handle, availableOffHeapPerTask())
+        jniWrapper.write(nativeShuffleWriter, rows, handle, availableMemoryPerTask())
         dep.metrics("shuffleWallTime").add(System.nanoTime() - startTime)
         dep.metrics("numInputRows").add(rows)
         dep.metrics("inputBatches").add(1)

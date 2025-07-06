@@ -40,7 +40,7 @@ class DynamicOffHeapSizingSuite extends VeloxWholeStageTransformerSuite {
   }
 
   test("Dynamic off-heap sizing") {
-    if (DynamicOffHeapSizingMemoryTarget.isJava9OrLater()) {
+    if (DynamicOffHeapSizingMemoryTarget.isJava9OrLater) {
       val query =
         """
           | select l_quantity, c_acctbal, o_orderdate, p_type, n_name, s_suppkey
@@ -50,22 +50,21 @@ class DynamicOffHeapSizingSuite extends VeloxWholeStageTransformerSuite {
           | order by c_acctbal desc, o_orderdate, s_suppkey, n_name, p_type, l_quantity
           | limit 1
       """.stripMargin
-      var totalMemory = Runtime.getRuntime().totalMemory()
-      var freeMemory = Runtime.getRuntime().freeMemory()
-      val maxMemory = Runtime.getRuntime().maxMemory()
+      val beforeState = DynamicOffHeapSizingMemoryTarget.MemoryState.captureCurrentState()
       // Ensure that the JVM memory is not too small to trigger dynamic off-heap sizing.
-      while (!DynamicOffHeapSizingMemoryTarget.canShrinkJVMMemory(totalMemory, freeMemory)) {
+      while (
+        !DynamicOffHeapSizingMemoryTarget.MemoryState.captureCurrentState().canShrinkJVMMemory
+      ) {
         withSQLConf(("spark.gluten.enabled", "false")) {
           spark.sql(query).collect()
         }
-        totalMemory = Runtime.getRuntime().totalMemory()
-        freeMemory = Runtime.getRuntime().freeMemory()
       }
-      val newTotalMemory =
-        DynamicOffHeapSizingMemoryTarget.shrinkOnHeapMemory(totalMemory, freeMemory, false)
-      assert(DynamicOffHeapSizingMemoryTarget.getTotalExplicitGCCount() > 0)
+      val newTotalMemory = DynamicOffHeapSizingMemoryTarget.shrinkOnHeapMemory0(
+        DynamicOffHeapSizingMemoryTarget.MemoryState.captureCurrentState(),
+        100)
+      assert(DynamicOffHeapSizingMemoryTarget.getTotalExplicitGCCount > 0)
       // Verify that the total memory is reduced after shrink.
-      assert(newTotalMemory < totalMemory)
+      assert(newTotalMemory.totalOnHeapMemory < beforeState.totalOnHeapMemory)
       // Verify that the query can run with dynamic off-heap sizing enabled.
       runAndCompare(query)
     }

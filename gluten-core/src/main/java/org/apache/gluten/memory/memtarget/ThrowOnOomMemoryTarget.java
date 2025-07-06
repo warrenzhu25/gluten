@@ -46,17 +46,50 @@ public class ThrowOnOomMemoryTarget implements MemoryTarget {
     if (TaskResources.inSparkTask()) {
       TaskResources.getLocalTaskContext().taskMemoryManager().showMemoryUsage();
     }
+
     // Build error message, then throw
     StringBuilder errorBuilder = new StringBuilder();
+    boolean dynamicSizingEnabled =
+        Boolean.parseBoolean(
+            SQLConf.get()
+                .getConfString(
+                    GlutenConfig$.MODULE$.DYNAMIC_OFFHEAP_SIZING_ENABLED().key(),
+                    GlutenConfig$.MODULE$.DYNAMIC_OFFHEAP_SIZING_ENABLED().defaultValueString()));
+
+    if (dynamicSizingEnabled) {
+      errorBuilder
+          .append(
+              String.format(
+                  "Not enough execution memory. Acquired: %s, granted: %s. "
+                      + "Try tweaking config option spark.executor.memory to get "
+                      + "larger space to run this application",
+                  Utils.bytesToString(size), Utils.bytesToString(granted)))
+          .append(System.lineSeparator())
+          .append(
+              String.format(
+                  "\t%s=%s",
+                  GlutenConfig$.MODULE$.DYNAMIC_OFFHEAP_SIZING_ENABLED().key(),
+                  SQLConf.get()
+                      .getConfString(GlutenConfig$.MODULE$.DYNAMIC_OFFHEAP_SIZING_ENABLED().key())))
+          .append(System.lineSeparator());
+    } else {
+      errorBuilder
+          .append(
+              String.format(
+                  "Not enough spark off-heap execution memory. Acquired: %s, granted: %s. "
+                      + "Try tweaking config option spark.memory.offHeap.size to get larger "
+                      + "space to run this application",
+                  Utils.bytesToString(size), Utils.bytesToString(granted)))
+          .append(System.lineSeparator())
+          .append(
+              String.format(
+                  "\t%s=%s",
+                  GlutenConfig$.MODULE$.SPARK_OFFHEAP_ENABLED(),
+                  SQLConf.get().getConfString(GlutenConfig$.MODULE$.SPARK_OFFHEAP_ENABLED())));
+    }
+
     errorBuilder
-        .append(
-            String.format(
-                "Not enough spark off-heap execution memory. Acquired: %s, granted: %s. "
-                    + "Try tweaking config option spark.memory.offHeap.size to get larger "
-                    + "space to run this application "
-                    + "(if spark.gluten.memory.dynamic.offHeap.sizing.enabled "
-                    + "is not enabled). %n",
-                Utils.bytesToString(size), Utils.bytesToString(granted)))
+        .append(System.lineSeparator())
         .append("Current config settings: ")
         .append(System.lineSeparator())
         .append(
@@ -86,21 +119,8 @@ public class ThrowOnOomMemoryTarget implements MemoryTarget {
                         .getConfString(
                             GlutenConfig$.MODULE$
                                 .COLUMNAR_CONSERVATIVE_TASK_OFFHEAP_SIZE_IN_BYTES()
-                                .key()))))
-        .append(System.lineSeparator())
-        .append(
-            String.format(
-                "\t%s=%s",
-                GlutenConfig$.MODULE$.SPARK_OFFHEAP_ENABLED(),
-                SQLConf.get().getConfString(GlutenConfig$.MODULE$.SPARK_OFFHEAP_ENABLED())))
-        .append(System.lineSeparator())
-        .append(
-            String.format(
-                "\t%s=%s",
-                GlutenConfig$.MODULE$.DYNAMIC_OFFHEAP_SIZING_ENABLED().key(),
-                SQLConf.get()
-                    .getConfString(GlutenConfig$.MODULE$.DYNAMIC_OFFHEAP_SIZING_ENABLED().key())))
-        .append(System.lineSeparator());
+                                .key()))));
+
     // Dump all consumer usages to exception body
     errorBuilder.append(SparkMemoryUtil.dumpMemoryTargetStats(target));
     errorBuilder.append(System.lineSeparator());

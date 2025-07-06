@@ -25,17 +25,15 @@ public class SparkThreadPoolUtil {
 
   private static final AtomicBoolean PERFORMING_GC = new AtomicBoolean(false);
 
+  // Will trigger only if not running.
   public static void triggerGCInThreadPool(Runnable callback) {
     if (PERFORMING_GC.compareAndSet(false, true)) {
       GC_THREAD_POOL.submit(
-          new Runnable() {
-            @Override
-            public void run() {
-              try {
-                callback.run();
-              } finally {
-                PERFORMING_GC.set(false);
-              }
+          () -> {
+            try {
+              callback.run();
+            } finally {
+              PERFORMING_GC.set(false);
             }
           });
     }

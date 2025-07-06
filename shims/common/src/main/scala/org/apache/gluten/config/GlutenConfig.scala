@@ -356,6 +356,24 @@ class GlutenConfig(conf: SQLConf) extends Logging {
   def dynamicOffHeapSizingEnabled: Boolean =
     getConf(DYNAMIC_OFFHEAP_SIZING_ENABLED)
 
+  def dynamicOffHeapSizingAsyncTotalMemoryThresholdRatio: Double =
+    getConf(DYNAMIC_OFFHEAP_SIZING_ASYNC_TOTAL_MEMORY_THRESHOLD_RATIO)
+
+  def dynamicOffHeapSizingAsyncOnHeapMemoryThresholdRatio: Double =
+    getConf(DYNAMIC_OFFHEAP_SIZING_ASYNC_ON_HEAP_MEMORY_THRESHOLD_RATIO)
+
+  def dynamicOffHeapSizingGCHeapFreeRatio: Double =
+    getConf(DYNAMIC_OFFHEAP_SIZING_GC_HEAP_FREE_RATIO)
+
+  def dynamicOffHeapSizingMaxGCRetry: Int =
+    getConf(DYNAMIC_OFFHEAP_SIZING_MAX_GC_RETRY)
+
+  def dynamicOffHeapSizingInitialGCWaitTime: Int =
+    getConf(DYNAMIC_OFFHEAP_SIZING_INITIAL_GC_RETRY_WAIT_TIME)
+
+  def dynamicOffHeapSizingGCMaxWaitTime: Int =
+    getConf(DYNAMIC_OFFHEAP_SIZING_GC_MAX_WAIT_TIME)
+
   def dynamicOffHeapSizingMemoryFraction: Double =
     getConf(DYNAMIC_OFFHEAP_SIZING_MEMORY_FRACTION)
 
@@ -1694,6 +1712,62 @@ object GlutenConfig {
           "spark.sql.adaptive.customCostEvaluatorClass.")
       .booleanConf
       .createWithDefault(true)
+
+  val DYNAMIC_OFFHEAP_SIZING_ASYNC_TOTAL_MEMORY_THRESHOLD_RATIO =
+    buildStaticConf("spark.gluten.memory.dynamic.offHeap.sizing.async.totalMemoryThresholdRatio")
+      .internal()
+      .doc(
+        "This is used to trigger an async GC. The Requested Off Heap + Allocated On Heap " +
+          "+ Allocated Off Heap should exceed totalMemoryThresholdRatio percentage of maximum" +
+          " shared memory for async GC to trigger.")
+      .doubleConf
+      .checkValue(v => v >= 0 && v <= 1, "Async GC Total Memory Threshold Ratio should be [0, 1]")
+      .createWithDefault(0.85)
+
+  val DYNAMIC_OFFHEAP_SIZING_ASYNC_ON_HEAP_MEMORY_THRESHOLD_RATIO =
+    buildStaticConf("spark.gluten.memory.dynamic.offHeap.sizing.async.onHeapMemoryThresholdRatio")
+      .internal()
+      .doc("This is used to trigger an async GC. The Allocated On Heap Memory should be at " +
+        "least onHeapMemoryThresholdRatio of maximum shared memory for async GC to trigger.")
+      .doubleConf
+      .checkValue(v => v >= 0 && v <= 1, "Async GC Total Memory Threshold Ratio should be [0, 1]")
+      .createWithDefault(0.65)
+
+  val DYNAMIC_OFFHEAP_SIZING_GC_HEAP_FREE_RATIO =
+    buildStaticConf("spark.gluten.memory.dynamic.offHeap.sizing.gcHeapFreeRatio")
+      .internal()
+      .doc(
+        "When dynamic off heap sizing is enabled, MaxHeapFreeRatio and MinHeapFreeRatio " +
+          "will be set to this value before trigger a GC. Keeping this small is ideal as GC " +
+          "will not hold on to unnecessary memory. Once GC is complete, original values are set.")
+      .doubleConf
+      .checkValue(v => v >= 0 && v <= 1, "Async GC Total Memory Threshold Ratio should be [0, 1]")
+      .createWithDefault(0.05)
+
+  val DYNAMIC_OFFHEAP_SIZING_MAX_GC_RETRY =
+    buildStaticConf("spark.gluten.memory.dynamic.sizing.maxGCRetry")
+      .internal()
+      .doc("Maximum number of times GC is attempted to free up required space.")
+      .intConf
+      .checkValue(v => v >= 0, "Retry Count should be greater than or equal to 0.")
+      .createWithDefault(6)
+
+  val DYNAMIC_OFFHEAP_SIZING_INITIAL_GC_RETRY_WAIT_TIME =
+    buildStaticConf("spark.gluten.memory.dynamic.sizing.initialGCWaitTime")
+      .internal()
+      .doc("Time in ms to wait before re triggering a GC after failure to free up enough " +
+        "space for off heap allocation.")
+      .intConf
+      .checkValue(v => v >= 0, "GC Wait Time should be greater than or equal to 0.")
+      .createWithDefault(200)
+
+  val DYNAMIC_OFFHEAP_SIZING_GC_MAX_WAIT_TIME =
+    buildStaticConf("spark.gluten.memory.dynamic.sizing.gcMaxWaitTime")
+      .internal()
+      .doc("Maximum time to wait for a single GC iteration to complete in ms.")
+      .intConf
+      .checkValue(v => v >= 0, "GC Wait Time should be greater than or equal to 0.")
+      .createWithDefault(10000)
 
   val DYNAMIC_OFFHEAP_SIZING_ENABLED =
     buildStaticConf("spark.gluten.memory.dynamic.offHeap.sizing.enabled")

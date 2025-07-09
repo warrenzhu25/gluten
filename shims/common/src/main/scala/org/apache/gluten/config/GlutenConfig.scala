@@ -461,7 +461,6 @@ object GlutenConfig {
   private val GLUTEN_CONFIG_PREFIX = "spark.gluten.sql.columnar.backend."
 
   // Private Spark configs.
-  val SPARK_ONHEAP_SIZE_KEY = "spark.executor.memory"
   val SPARK_OVERHEAD_SIZE_KEY = "spark.executor.memoryOverhead"
   val SPARK_OVERHEAD_FACTOR_KEY = "spark.executor.memoryOverheadFactor"
   val SPARK_OFFHEAP_SIZE_KEY = "spark.memory.offHeap.size"
@@ -472,6 +471,7 @@ object GlutenConfig {
   val SPARK_SHUFFLE_SPILL_DISK_WRITE_BUFFER_SIZE = "spark.shuffle.spill.diskWriteBufferSize"
   val SPARK_SHUFFLE_SPILL_COMPRESS = "spark.shuffle.spill.compress"
   val SPARK_SHUFFLE_SPILL_COMPRESS_DEFAULT: Boolean = true
+  val SPARK_ONHEAP_SIZE_KEY = "spark.executor.memory"
 
   def get: GlutenConfig = {
     new GlutenConfig(SQLConf.get)

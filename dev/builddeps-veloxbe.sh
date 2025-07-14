@@ -48,7 +48,7 @@ VELOX_PARAMETER=""
 GET_VELOX=""
 SETUP_VELOX=""
 BUILD_ARROW=ON
-SPARK_VERSION=3.5
+SPARK_VERSION=3.5.3
 SCALA_VERSION=2.12
 JAVA_VERSION=11
 INSTALL_PREFIX=${INSTALL_PREFIX:-}
@@ -219,8 +219,8 @@ if [ "$ENABLE_VCPKG" = "ON" ]; then
 fi
 
 if [ "$SPARK_VERSION" = "3.2" ] || [ "$SPARK_VERSION" = "3.3" ] \
-  || [ "$SPARK_VERSION" = "3.4" ] || [ "$SPARK_VERSION" = "3.5" ] \
-  || [ "$SPARK_VERSION" = "ALL" ]; then
+  || [ "$SPARK_VERSION" = "3.4" ] || [ "$SPARK_VERSION" = "3.5.1" ] \
+  || [ "$SPARK_VERSION" = "3.5.3" ] || [ "$SPARK_VERSION" = "ALL" ]; then
   echo "Building for Spark $SPARK_VERSION"
 else
   echo "Invalid Spark version: $SPARK_VERSION"

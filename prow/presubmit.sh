@@ -96,7 +96,7 @@ docker exec -i "${CONTAINER_NAME}" bash -c 'pip3 install setuptools pyspark==3.5
 
 # Spark Integration tests
 docker exec -i "${CONTAINER_NAME}" bash -c 'pwd && export SPARK_SCALA_VERSION=2.12 && \
-  mvn clean install -Pjava-17 -Pscala-2.12 -Pspark-3.5 -Pspark-ut -Pbackends-velox \
+  mvn clean install -Pjava-17 -Pscala-2.12 -Pspark-3.5.3 -Pspark-ut -Pbackends-velox \
   -Dbackend.home=/home/prow/go/src/dataproc/third_party/oap-project/velox \
   -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.SkipTestTags \
   -DargLine="-Dspark.test.home=/opt/shims/spark35/spark_home -XX:+IgnoreUnrecognizedVMOptions --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.lang.invoke=ALL-UNNAMED --add-opens=java.base/java.lang.reflect=ALL-UNNAMED --add-opens=java.base/java.io=ALL-UNNAMED --add-opens=java.base/java.net=ALL-UNNAMED --add-opens=java.base/java.nio=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED --add-opens=java.base/java.util.concurrent=ALL-UNNAMED --add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED --add-opens=java.base/jdk.internal.ref=ALL-UNNAMED --add-opens=java.base/sun.nio.ch=ALL-UNNAMED --add-opens=java.base/sun.nio.cs=ALL-UNNAMED --add-opens=java.base/sun.security.action=ALL-UNNAMED --add-opens=java.base/sun.util.calendar=ALL-UNNAMED -Djdk.reflect.useDirectMethodHandle=false -Dio.netty.tryReflectionSetAccessible=true"'

@@ -9,7 +9,7 @@ echo "Running as " "$(whoami)"
 download_maven
 
 JAVA_VERSION="Java11"
-SPARK_VERSION="3.5"
+SPARK_VERSION="3.5.3"
 SCALA_VERSION="2.12"
 
 build_jars "${OS_VERSION}" "${JAVA_VERSION}" "${SPARK_VERSION}" "${SCALA_VERSION}"
@@ -18,7 +18,7 @@ TODAY=$(date +%Y%m%d-%H%M)
 VERSION="1.4.0-${TODAY}"
 DESCRIPTION="Gluten 1.4 with Spark ${SPARK_VERSION} jars for dpgce-2.3"
 THIRD_PARTY_JAR="gluten-thirdparty-lib-debian-12-x86_64.jar"
-VELOX_BUNDLE_JAR="gluten-velox-bundle-spark${SPARK_VERSION}_${SCALA_VERSION}-debian_12_x86_64-1.4.0.jar"
+VELOX_BUNDLE_JAR="gluten-velox-bundle-spark${SPARK_VERSION}_${SCALA_VERSION}-linux_amd64-1.4.0.jar"
 
 # Upload to Dataproc Artifact Registry
 if [ "$PUBLISH_JARS" == "yes" ]; then

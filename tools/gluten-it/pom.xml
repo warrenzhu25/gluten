@@ -168,7 +168,14 @@
       </properties>
     </profile>
     <profile>
-      <id>spark-3.5</id>
+      <id>spark-3.5.1</id>
+      <properties>
+        <spark.version>3.5.1</spark.version>
+        <scala.library.version>2.12.18</scala.library.version>
+      </properties>
+    </profile>
+    <profile>
+      <id>spark-3.5.3</id>
       <properties>
         <spark.version>3.5.3</spark.version>
         <scala.library.version>2.12.18</scala.library.version>

@@ -73,9 +73,15 @@
       </modules>
     </profile>
     <profile>
-      <id>spark-3.5</id>
+      <id>spark-3.5.1</id>
       <modules>
-        <module>spark35</module>
+        <module>spark351</module>
+      </modules>
+    </profile>
+    <profile>
+      <id>spark-3.5.3</id>
+      <modules>
+        <module>spark353</module>
       </modules>
     </profile>
     <profile>

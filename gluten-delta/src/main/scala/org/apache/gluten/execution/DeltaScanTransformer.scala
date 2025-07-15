@@ -18,6 +18,7 @@ package org.apache.gluten.execution
 
 import org.apache.gluten.extension.ValidationResult
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
+import org.apache.gluten.utils.{AnyExcept, BlockListedConfiguration, BlockListedSparkConfiguration}
 
 import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression}
@@ -61,6 +62,14 @@ case class DeltaScanTransformer(
     }
 
     super.doValidateInternal()
+  }
+
+  override protected def blockListedConfigurations: Seq[BlockListedConfiguration] = {
+    super.blockListedConfigurations ++ Seq(
+      BlockListedSparkConfiguration(
+        "spark.databricks.delta.merge.enableLowShuffleMerge",
+        AnyExcept("false")
+      ))
   }
 
   override def doCanonicalize(): DeltaScanTransformer = {

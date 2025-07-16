@@ -38,7 +38,7 @@ ENV JAVA_HOME="/usr/lib/jvm/temurin-11-jdk-amd64"
 #MAVEN
 ARG MAVEN_VERSION="3.9.10"
 WORKDIR /opt
-RUN wget https://dlcdn.apache.org/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz
+RUN wget https://archive.apache.org/dist/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz
 RUN tar xzf apache-maven-${MAVEN_VERSION}-bin.tar.gz
 RUN rm apache-maven-${MAVEN_VERSION}-bin.tar.gz
 ENV M2_HOME=/opt/apache-maven-${MAVEN_VERSION}

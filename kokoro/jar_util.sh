@@ -5,7 +5,7 @@ export GLUTEN_DIR="${BASE_DIR}/incubator-gluten"
 
 function download_maven() {
   MAVEN_VERSION=3.9.10
-  wget https://dlcdn.apache.org/maven/maven-3/"${MAVEN_VERSION}"/binaries/apache-maven-"${MAVEN_VERSION}"-bin.tar.gz
+  wget https://archive.apache.org/dist/maven/maven-3/"${MAVEN_VERSION}"/binaries/apache-maven-"${MAVEN_VERSION}"-bin.tar.gz
   tar -xvzf apache-maven-"${MAVEN_VERSION}"-bin.tar.gz apache-maven-"${MAVEN_VERSION}"
   export PATH=/tmpfs/src/apache-maven-"${MAVEN_VERSION}"/bin:$PATH
 }

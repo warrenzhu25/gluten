@@ -279,6 +279,26 @@ class JsonFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
+  // Should fallback to spark
+  testWithSpecifiedSparkVersion("from_json function Timestamp", Some("3.4")) {
+    withTempPath {
+      path =>
+        Seq[(String)](
+          ("""{"time": "2025-08-04T16:32:00Z"}"""),
+          ("""{"time": "1906-08-04T16:32:00Z"}""")
+        )
+          .toDF("txt")
+          .write
+          .parquet(path.getCanonicalPath)
+
+        spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("tbl")
+
+        runQueryAndCompare("select from_json(txt, 'time TIMESTAMP') from tbl") {
+          checkSparkOperatorMatch[ProjectExec]
+        }
+    }
+  }
+
   test("from_json function CORRUPT_RECORD") {
     withTempPath {
       path =>

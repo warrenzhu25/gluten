@@ -32,6 +32,7 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.serializer.Serializer
 import org.apache.spark.shuffle.{GenShuffleWriterParameters, GlutenShuffleWriterWrapper}
 import org.apache.spark.shuffle.utils.ShuffleUtil
+import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.catalog.BucketSpec
 import org.apache.spark.sql.catalyst.catalog.CatalogTypes.TablePartitionSpec
 import org.apache.spark.sql.catalyst.expressions._
@@ -757,7 +758,40 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi {
       throw new GlutenNotSupportException(
         "'from_json' with column corrupt record is not supported in Velox")
     }
+
+    if (!isFromJsonSupported(expr.schema, isRoot = true)) {
+      throw new GlutenNotSupportException(
+        s"'from_json' with ${expr.schema} types not supported in Velox")
+    }
     GenericExpressionTransformer(substraitExprName, children, expr)
+  }
+
+  private def isFromJsonSupported(dataType: DataType, isRoot: Boolean): Boolean = {
+    dataType match {
+      case ArrayType(ofType, _) =>
+        isFromJsonSupported(ofType, isRoot = false)
+
+      case r: Row =>
+        isFromJsonSupported(r.schema, isRoot = false)
+
+      case StructType(fields) =>
+        fields.forall(field => isFromJsonSupported(field.dataType, isRoot = false))
+
+      case MapType(key, value, _) =>
+        if (key.isInstanceOf[VarcharType] || key.isInstanceOf[StringType]) {
+          isFromJsonSupported(value, isRoot = false)
+        } else {
+          throw new GlutenNotSupportException(
+            s"'from_json' with ${key.typeName} type in Map key is not supported in Velox")
+        }
+      // These types cannot be root
+      case BooleanType | IntegerType | LongType | ShortType | DoubleType | FloatType | StringType |
+          VarcharType(_) =>
+        !isRoot
+
+      case _ =>
+        false
+    }
   }
 
   /** Generate an expression transformer to transform NamedStruct to Substrait. */

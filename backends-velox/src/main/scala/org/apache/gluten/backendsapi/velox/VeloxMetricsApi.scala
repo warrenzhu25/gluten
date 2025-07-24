@@ -557,7 +557,9 @@ class VeloxMetricsApi extends MetricsApi with Logging {
         "time of postProjection"),
       "numOutputRows" -> SQLMetrics.createMetric(sparkContext, "number of output rows"),
       "numOutputVectors" -> SQLMetrics.createMetric(sparkContext, "number of output vectors"),
-      "numOutputBytes" -> SQLMetrics.createSizeMetric(sparkContext, "number of output bytes")
+      "numOutputBytes" -> SQLMetrics.createSizeMetric(sparkContext, "number of output bytes"),
+      "memoryBytesSpilled" -> SQLMetrics.createSizeMetric(sparkContext, "memory bytes spilled"),
+      "diskBytesSpilled" -> SQLMetrics.createSizeMetric(sparkContext, "disk bytes spilled")
     )
 
   override def genHashJoinTransformerMetricsUpdater(

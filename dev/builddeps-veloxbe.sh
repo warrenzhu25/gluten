@@ -48,6 +48,9 @@ VELOX_PARAMETER=""
 GET_VELOX=""
 SETUP_VELOX=""
 BUILD_ARROW=ON
+GET_SPARK=OFF
+SPARK_HOME=""
+BUILD_SPARK=OFF
 SPARK_VERSION=3.5.3
 SCALA_VERSION=2.12
 JAVA_VERSION=11
@@ -177,6 +180,18 @@ do
         SETUP_VELOX=("${arg#*=}")
         shift # Remove argument name from processing
         ;;
+        --get_spark=*)
+        GET_SPARK=("${arg#*=}")
+        shift # Remove argument name from processing
+        ;;
+        --spark_home=*)
+        SPARK_HOME=("${arg#*=}")
+        shift # Remove argument name from processing
+        ;;
+        --build_spark=*)
+        BUILD_SPARK=("${arg#*=}")
+        shift # Remove argument name from processing
+        ;;
               *)
         OTHER_ARGUMENTS+=("$1")
         shift # Remove generic argument from processing
@@ -245,6 +260,12 @@ fi
 
 concat_velox_param
 
+function build_spark {
+  echo "Start to build Spark"
+  cd $GLUTEN_DIR/ep/build-spark/src
+  ./build_spark.sh --spark_version=$SPARK_VERSION --spark_home=$SPARK_HOME
+}
+
 function build_arrow {
   cd $GLUTEN_DIR/dev
   ./build_arrow.sh
@@ -296,6 +317,9 @@ function build_gluten_cpp {
 }
 
 function build_velox_backend {
+  if [ $BUILD_SPARK == "ON" ]; then
+    build_spark
+  fi
   if [ $BUILD_ARROW == "ON" ]; then
     build_arrow
   fi
@@ -303,6 +327,17 @@ function build_velox_backend {
   build_gluten_cpp
 }
 
+# Fetch Spark
+if [ "$GET_SPARK" == "ON" ]; then
+  cd $GLUTEN_DIR/ep/build-spark/src
+  ./get_spark.sh --spark_home=$SPARK_HOME
+
+  if [ "$SPARK_HOME" == "" ]; then
+    SPARK_HOME="$GLUTEN_DIR/ep/build-spark/build/spark"
+  fi
+fi
+
+# Fetch Velox
 (
   cd $GLUTEN_DIR/ep/build-velox/src
   ./get_velox.sh $VELOX_PARAMETER

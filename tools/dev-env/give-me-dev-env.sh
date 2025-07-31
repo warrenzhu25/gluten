@@ -29,10 +29,12 @@ cd "$script_dir"
 # Get Velox
 ./../../ep/build-velox/src/get_velox.sh --get_velox=ON --setup_velox=OFF  --velox_remove_local_changes=ON
 
+# Get Spark
+./../../ep/build-spark/src/get_spark.sh
+
 # Start docker container
 ./host-scripts/run.sh -t "dev" -o "$os_version" -j $java_version $volume_args
 
-./host-scripts/package.sh "dev-env-$os_version-$java_version" ${build_type:+--build_type=$build_type}
+./host-scripts/package.sh "dev-env-$os_version-$java_version" ${build_type:+--build_type=$build_type} --build_spark=ON
 
 ./host-scripts/setup-ide.sh "dev-env-$os_version-$java_version" $os_version
-

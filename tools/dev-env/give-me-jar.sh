@@ -6,7 +6,7 @@ os_version="Debian12"
 volumes=()
 java_version="Java17"
 get_velox="OFF"
-spark_version="3.5"
+spark_version="3.5.3"
 scala_version="2.12"
 
 while getopts "v:o:j:c:s:dg" opt; do
@@ -36,6 +36,9 @@ cd "$script_dir"
 # Get Velox
 ./../../ep/build-velox/src/get_velox.sh --get_velox=$get_velox --setup_velox=OFF
 
+# Get Spark
+./../../ep/build-spark/src/get_spark.sh
+
 # Start docker container
 ./host-scripts/run.sh -t "build" -o $os_version -j $java_version $volume_args
 
@@ -43,4 +46,4 @@ cd "$script_dir"
 trap "./host-scripts/remove.sh build-env-$os_version-$java_version" EXIT
 
 ./host-scripts/package.sh "build-env-$os_version-$java_version" ${build_type:+--build_type=$build_type} \
-  ${spark_version:+--spark_version=$spark_version} ${scala_version:+--scala_version=$scala_version}
+  ${spark_version:+--spark_version=$spark_version} ${scala_version:+--scala_version=$scala_version} --build_spark=ON

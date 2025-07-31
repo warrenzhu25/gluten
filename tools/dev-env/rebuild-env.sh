@@ -7,24 +7,26 @@ java_version="Java17"
 env_type="dev"
 build_type="Debug"
 get_velox="OFF"
+get_spark="OFF"
 
-while getopts "o:j:rg" opt; do
+while getopts "o:j:rgs" opt; do
   case $opt in
     o) os_version="$OPTARG";;
     j) java_version="$OPTARG";;
-    r)
-      env_type="release"
-      build_type="Release"
-      ;;
-    g)
-      get_velox="ON"
-      ;;
+    r) env_type="release"
+       build_type="Release";;
+    g) get_velox="ON";;
+    s) get_spark="ON";;
     *) echo "Invalid option: -$OPTARG"; exit 1;;
   esac
 done
 
 if [[ "$get_velox" == "ON" ]]; then
-  ./../../ep/build-velox/src/get_velox.sh --get_velox=ON--setup_velox=OFF --velox_remove_local_changes=ON
+  ./../../ep/build-velox/src/get_velox.sh --get_velox=ON --setup_velox=OFF --velox_remove_local_changes=ON
+fi
+
+if [[ "$get_spark" == "ON" ]]; then
+  ./../../ep/build-spark/src/get_spark.sh
 fi
 
 ./host-scripts/package.sh "$env_type-env-$os_version-$java_version" --build_type=$build_type --build_arrow=OFF --get_velox=OFF --setup_velox=OFF --run_setup_script=OFF

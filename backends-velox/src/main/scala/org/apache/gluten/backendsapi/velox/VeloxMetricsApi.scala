@@ -558,10 +558,12 @@ class VeloxMetricsApi extends MetricsApi with Logging {
       "numOutputRows" -> SQLMetrics.createMetric(sparkContext, "number of output rows"),
       "numOutputVectors" -> SQLMetrics.createMetric(sparkContext, "number of output vectors"),
       "numOutputBytes" -> SQLMetrics.createSizeMetric(sparkContext, "number of output bytes"),
-      "memoryBytesSpilled" -> SQLMetrics.createSizeMetric(
+      "hashJoinMemoryBytesSpilled" -> SQLMetrics.createSizeMetric(
         sparkContext,
         "memory bytes spilled in join"),
-      "diskBytesSpilled" -> SQLMetrics.createSizeMetric(sparkContext, "disk bytes spilled in join")
+      "hashJoinDiskBytesSpilled" -> SQLMetrics.createSizeMetric(
+        sparkContext,
+        "disk bytes spilled in join")
     )
 
   override def genHashJoinTransformerMetricsUpdater(

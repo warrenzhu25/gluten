@@ -88,8 +88,8 @@ class HashJoinMetricsUpdater(override val metrics: Map[String, SQLMetric])
   val hashProbeSpilledPartitions: SQLMetric = metrics("hashProbeSpilledPartitions")
   val hashProbeSpilledFiles: SQLMetric = metrics("hashProbeSpilledFiles")
 
-  val memoryBytesSpilled: SQLMetric = metrics("memoryBytesSpilled")
-  val diskBytesSpilled: SQLMetric = metrics("diskBytesSpilled")
+  val hashJoinMemoryBytesSpilled: SQLMetric = metrics("hashJoinMemoryBytesSpilled")
+  val hashJoinDiskBytesSpilled: SQLMetric = metrics("hashJoinDiskBytesSpilled")
 
   // The number of rows which were passed through without any processing
   // after filter was pushed down.
@@ -145,8 +145,9 @@ class HashJoinMetricsUpdater(override val metrics: Map[String, SQLMetric])
     idx += 1
 
     // Bytes Spilled
-    memoryBytesSpilled += hashProbeMetrics.spilledInputBytes + hashBuildMetrics.spilledInputBytes
-    diskBytesSpilled += hashProbeMetrics.spilledBytes + hashBuildMetrics.spilledBytes
+    hashJoinMemoryBytesSpilled +=
+      hashProbeMetrics.spilledInputBytes + hashBuildMetrics.spilledInputBytes
+    hashJoinDiskBytesSpilled += hashProbeMetrics.spilledBytes + hashBuildMetrics.spilledBytes
 
     if (joinParams.buildPreProjectionNeeded) {
       buildPreProjectionCpuCount += joinMetrics.get(idx).cpuCount

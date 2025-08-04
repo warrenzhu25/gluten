@@ -282,8 +282,17 @@ class FallbackSuite
         assert(collect(plan) { case g: GlutenPlan => g }.nonEmpty)
     }
 
-    // With Blocklisted Hadoop Configuration
+    // With Non Blocklisted Hadoop Configuration
     withHadoopConf(spark)("fs.gs.batch.threads" -> "1") {
+      runQueryAndCompare("SELECT count(*) FROM tmp1") {
+        df =>
+          val plan = df.queryExecution.executedPlan
+          assert(collect(plan) { case g: GlutenPlan => g }.nonEmpty)
+      }
+    }
+
+    // With Blocklisted hadoop Configuration Prefix Key
+    withHadoopConf(spark)("fs.gs.working.dir" -> "/test") {
       runQueryAndCompare("SELECT count(*) FROM tmp1") {
         df =>
           val plan = df.queryExecution.executedPlan
@@ -292,7 +301,70 @@ class FallbackSuite
     }
 
     // With Blocklisted hadoop Configuration Prefix Key
+    withHadoopConf(spark)("fs.gs.implicit.dir.repair.enable" -> "false") {
+      runQueryAndCompare("SELECT count(*) FROM tmp1") {
+        df =>
+          val plan = df.queryExecution.executedPlan
+          assert(collect(plan) { case g: GlutenPlan => g }.isEmpty)
+      }
+    }
+
+    // With Blocklisted hadoop Configuration Prefix Key
+    withHadoopConf(spark)("fs.gs.delegation.token.binding" -> "test") {
+      runQueryAndCompare("SELECT count(*) FROM tmp1") {
+        df =>
+          val plan = df.queryExecution.executedPlan
+          assert(collect(plan) { case g: GlutenPlan => g }.isEmpty)
+      }
+    }
+
+    // With Blocklisted hadoop Configuration Prefix Key
+    withHadoopConf(spark)("fs.gs.max.wait.for.empty.object.creation" -> "5s") {
+      runQueryAndCompare("SELECT count(*) FROM tmp1") {
+        df =>
+          val plan = df.queryExecution.executedPlan
+          assert(collect(plan) { case g: GlutenPlan => g }.isEmpty)
+      }
+    }
+
+    // With Un Blocklisted hadoop Configuration Prefix Key Value Pattern
+    withHadoopConf(spark)("fs.gs.max.wait.for.empty.object.creation" -> "3s") {
+      runQueryAndCompare("SELECT count(*) FROM tmp1") {
+        df =>
+          val plan = df.queryExecution.executedPlan
+          assert(collect(plan) { case g: GlutenPlan => g }.nonEmpty)
+      }
+    }
+
+    // With Blocklisted hadoop Configuration Prefix Key
     withHadoopConf(spark)("fs.gs.storage.http.headers.test" -> "1234") {
+      runQueryAndCompare("SELECT count(*) FROM tmp1") {
+        df =>
+          val plan = df.queryExecution.executedPlan
+          assert(collect(plan) { case g: GlutenPlan => g }.isEmpty)
+      }
+    }
+
+    // With Blocklisted hadoop Configuration Prefix Key
+    withHadoopConf(spark)("fs.gs.encryption.algorithm" -> "test") {
+      runQueryAndCompare("SELECT count(*) FROM tmp1") {
+        df =>
+          val plan = df.queryExecution.executedPlan
+          assert(collect(plan) { case g: GlutenPlan => g }.isEmpty)
+      }
+    }
+
+    // With Blocklisted hadoop Configuration Prefix Key
+    withHadoopConf(spark)("fs.gs.encryption.key" -> "test") {
+      runQueryAndCompare("SELECT count(*) FROM tmp1") {
+        df =>
+          val plan = df.queryExecution.executedPlan
+          assert(collect(plan) { case g: GlutenPlan => g }.isEmpty)
+      }
+    }
+
+    // With Blocklisted hadoop Configuration Prefix Key
+    withHadoopConf(spark)("fs.gs.encryption.key.hash" -> "test") {
       runQueryAndCompare("SELECT count(*) FROM tmp1") {
         df =>
           val plan = df.queryExecution.executedPlan

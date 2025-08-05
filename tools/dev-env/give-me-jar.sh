@@ -6,10 +6,11 @@ os_version="Debian12"
 volumes=()
 java_version="Java17"
 get_velox="OFF"
+get_spark="ON"
 spark_version="3.5.3"
 scala_version="2.12"
 
-while getopts "v:o:j:c:s:dg" opt; do
+while getopts "v:o:j:c:s:dgr" opt; do
   case $opt in
     v) volumes+=("$OPTARG");;
     o) os_version="$OPTARG";;
@@ -18,6 +19,7 @@ while getopts "v:o:j:c:s:dg" opt; do
     s) spark_version="$OPTARG";;
     d) build_type="Debug";;
     g) get_velox="ON";;
+    r) get_spark="OFF";;
     *) echo "Invalid option: -$OPTARG"; exit 1;;
   esac
 done
@@ -37,7 +39,9 @@ cd "$script_dir"
 ./../../ep/build-velox/src/get_velox.sh --get_velox=$get_velox --setup_velox=OFF
 
 # Get Spark
-./../../ep/build-spark/src/get_spark.sh
+if [[ "$get_spark" == "ON" ]]; then
+  ./../../ep/build-spark/src/get_spark.sh
+fi
 
 # Start docker container
 ./host-scripts/run.sh -t "build" -o $os_version -j $java_version $volume_args

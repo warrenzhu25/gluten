@@ -28,6 +28,7 @@ import org.apache.gluten.task.TaskListener
 
 import org.apache.spark.{SPARK_REVISION, SparkConf, SparkContext, TaskFailedReason}
 import org.apache.spark.api.plugin.{DriverPlugin, ExecutorPlugin, PluginContext, SparkPlugin}
+import org.apache.spark.google.SparkDataprocEnvValidator
 import org.apache.spark.internal.Logging
 import org.apache.spark.network.util.JavaUtils
 import org.apache.spark.softaffinity.SoftAffinityListener
@@ -72,6 +73,9 @@ private[gluten] class GlutenDriverPlugin extends DriverPlugin with Logging {
     postBuildInfoEvent(sc)
 
     setPredefinedConfigs(conf)
+
+    // Validate Dataproc Env
+    SparkDataprocEnvValidator.validateEnv(sc.getConf)
 
     // Initialize Backend.
     Component.sorted().foreach(_.onDriverStart(sc, pluginContext))

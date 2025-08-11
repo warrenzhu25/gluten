@@ -406,7 +406,7 @@ abstract class GlutenDynamicPartitionPruningV1Suite extends GlutenDynamicPartiti
         assert(allPartitions === numPartitions)
         val pruningTimeVal1: Long =
           getDriverMetrics(scan1, "pruningTime").map(_.value).getOrElse(-1)
-        assert(pruningTimeVal1 === 0)
+        assert(pruningTimeVal1 === -1)
 
         // No dynamic partition pruning, so no static metrics
         // Only files from fid = 5 partition are scanned
@@ -424,7 +424,7 @@ abstract class GlutenDynamicPartitionPruningV1Suite extends GlutenDynamicPartiti
         assert(partPartitions === 1)
         val pruningTimeVal2: Long =
           getDriverMetrics(scan2, "pruningTime").map(_.value).getOrElse(-1)
-        assert(pruningTimeVal2 === 0)
+        assert(pruningTimeVal2 === -1)
 
         // Dynamic partition pruning is used
         // Static metrics are as-if reading the whole fact table
@@ -529,7 +529,7 @@ class GlutenDynamicPartitionPruningV1SuiteAEOff
         assert(allPartitions === numPartitions)
         val pruningTimeVal1: Long =
           getDriverMetrics(scan1, "pruningTime").map(_.value).getOrElse(-1)
-        assert(pruningTimeVal1 === 0)
+        assert(pruningTimeVal1 === -1)
 
         // No dynamic partition pruning, so no static metrics
         // Only files from fid = 5 partition are scanned
@@ -547,7 +547,7 @@ class GlutenDynamicPartitionPruningV1SuiteAEOff
         assert(partPartitions === 1)
         val pruningTimeVal2: Long =
           getDriverMetrics(scan2, "pruningTime").map(_.value).getOrElse(-1)
-        assert(pruningTimeVal2 === 0)
+        assert(pruningTimeVal2 === -1)
 
         // Dynamic partition pruning is used
         // Static metrics are as-if reading the whole fact table

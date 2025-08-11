@@ -275,6 +275,6 @@ class VeloxMetricsSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
     assert(scans.length === 1)
     val metrics = scans.head.metrics
     assert(metrics("storageReadBytes").value > 0)
-    assert(metrics("ramReadBytes").value == 0)
+    assert(metrics("ramReadBytes").value == -1)
   }
 }

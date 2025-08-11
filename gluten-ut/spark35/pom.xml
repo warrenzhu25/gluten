@@ -159,7 +159,7 @@
       </dependencies>
       <properties>
         <slf4j.version>2.0.6</slf4j.version>
-        <log4j.version>2.19.0</log4j.version>
+        <log4j.version>2.22.0</log4j.version>
       </properties>
       <build>
         <plugins>

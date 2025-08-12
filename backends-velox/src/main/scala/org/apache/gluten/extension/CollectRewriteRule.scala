@@ -16,6 +16,7 @@
  */
 package org.apache.gluten.extension
 
+import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.expression.ExpressionMappings
 import org.apache.gluten.expression.aggregate.{VeloxCollectList, VeloxCollectSet}
 
@@ -36,6 +37,12 @@ import scala.reflect.{classTag, ClassTag}
 case class CollectRewriteRule(spark: SparkSession) extends Rule[LogicalPlan] {
   import CollectRewriteRule._
   override def apply(plan: LogicalPlan): LogicalPlan = {
+    // For streaming queries, bypass this transformation if
+    // Velox-native stateful aggregation is disabled.
+    if (plan.isStreaming && !GlutenConfig.get.enableStatefulAggregateFunctions) {
+      return plan
+    }
+
     if (!has[VeloxCollectSet] && !has[VeloxCollectList]) {
       return plan
     }

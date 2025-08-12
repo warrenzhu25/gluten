@@ -220,6 +220,9 @@ class GlutenConfig(conf: SQLConf) extends Logging {
   def enableNativeHyperLogLogAggregateFunction: Boolean =
     getConf(COLUMNAR_NATIVE_HYPERLOGLOG_AGGREGATE_ENABLED)
 
+  def enableStatefulAggregateFunctions: Boolean =
+    getConf(STATEFUL_AGGREGATE_FUNCTIONS_ENABLED)
+
   def columnarParquetWriteBlockSize: Long =
     getConf(COLUMNAR_PARQUET_WRITE_BLOCK_SIZE)
 
@@ -1138,6 +1141,14 @@ object GlutenConfig {
       .internal()
       .booleanConf
       .createWithDefault(true)
+
+  val STATEFUL_AGGREGATE_FUNCTIONS_ENABLED =
+    buildConf("spark.gluten.sql.streaming.stateful.Aggregate")
+      .internal()
+      .doc("When true, transform stateful aggregation functions " +
+        "(ex. collect_list, collect_set and HLLAgg) to Velox functions in case of Streaming")
+      .booleanConf
+      .createWithDefault(false)
 
   val COLUMNAR_PARQUET_WRITE_BLOCK_SIZE =
     buildConf("spark.gluten.sql.columnar.parquet.write.blockSize")

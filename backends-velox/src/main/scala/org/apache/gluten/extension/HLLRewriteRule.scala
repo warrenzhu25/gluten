@@ -29,6 +29,12 @@ import org.apache.spark.sql.types._
 
 case class HLLRewriteRule(spark: SparkSession) extends Rule[LogicalPlan] {
   override def apply(plan: LogicalPlan): LogicalPlan = {
+    // For streaming queries, bypass this transformation if
+    // Velox-native stateful aggregation is disabled.
+    if (plan.isStreaming && !GlutenConfig.get.enableStatefulAggregateFunctions) {
+      return plan
+    }
+
     if (
       !GlutenConfig.get.enableNativeHyperLogLogAggregateFunction ||
       !GlutenConfig.get.enableColumnarHashAgg

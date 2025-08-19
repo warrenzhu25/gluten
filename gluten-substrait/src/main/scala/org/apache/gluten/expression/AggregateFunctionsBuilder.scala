@@ -21,6 +21,7 @@ import org.apache.gluten.exception.GlutenNotSupportException
 import org.apache.gluten.expression.ConverterUtils.FunctionConfig
 import org.apache.gluten.substrait.expression.ExpressionBuilder
 
+import org.apache.spark.sql.catalyst.expressions.Literal
 import org.apache.spark.sql.catalyst.expressions.aggregate._
 import org.apache.spark.sql.types.DataType
 
@@ -49,6 +50,12 @@ object AggregateFunctionsBuilder {
 
   def getSubstraitFunctionName(aggregateFunc: AggregateFunction): String = {
     aggregateFunc match {
+      case First(Literal(null, _), _) =>
+        throw new GlutenNotSupportException(
+          s"Unsupported null literal expression inside the function $aggregateFunc.")
+      case Last(Literal(null, _), _) =>
+        throw new GlutenNotSupportException(
+          s"Unsupported null literal expression inside the function $aggregateFunc.")
       case First(_, ignoreNulls) if ignoreNulls =>
         ExpressionNames.FIRST_IGNORE_NULL
       case Last(_, ignoreNulls) if ignoreNulls =>

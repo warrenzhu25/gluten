@@ -48,5 +48,5 @@ cat <<EOF > .mvn/maven.config
 EOF
 export MAVEN_OPTS="-Xss1g -Xmx20g -XX:MaxMetaspaceSize=10g -XX:ReservedCodeCacheSize=2g -Dsun.zip.disableMemoryMapping=true -DtrimStackTrace=false"
 
-./build/mvn -DskipTests clean install
+./build/mvn -DskipTests clean install -Pdataproc-ip-protect-dev
 echo "Successfully built Spark from source."

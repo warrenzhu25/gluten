@@ -22,7 +22,7 @@ import org.apache.gluten.extension.ValidationResult
 import org.apache.gluten.metrics.MetricsUpdater
 import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
-import org.apache.gluten.utils.FileIndexUtil
+import org.apache.gluten.utils.{ANY, AnyExcept, BlockListedConfiguration, BlockListedSparkConfiguration, FileIndexUtil}
 
 import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference, Expression, PlanExpression}
@@ -57,6 +57,14 @@ case class FileSourceScanExecTransformer(
     dataFilters,
     tableIdentifier,
     disableBucketedScan) {
+
+  override protected def blockListedConfigurations: Seq[BlockListedConfiguration] = {
+    super.blockListedConfigurations ++ Seq(
+      BlockListedSparkConfiguration("spark.sql.files.ignoreCorruptFiles", AnyExcept("false")),
+      BlockListedSparkConfiguration("spark.sql.orc.impl", AnyExcept("native")),
+      BlockListedSparkConfiguration("orc.encrypt", ANY)
+    )
+  }
 
   override def doCanonicalize(): FileSourceScanExecTransformer = {
     FileSourceScanExecTransformer(

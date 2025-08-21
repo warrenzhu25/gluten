@@ -26,7 +26,7 @@ import org.apache.gluten.extension.GlutenSessionExtensions
 import org.apache.gluten.initializer.CodedInputStreamClassInitializer
 import org.apache.gluten.task.TaskListener
 
-import org.apache.spark.{SparkConf, SparkContext, TaskFailedReason}
+import org.apache.spark.{SPARK_REVISION, SparkConf, SparkContext, TaskFailedReason}
 import org.apache.spark.api.plugin.{DriverPlugin, ExecutorPlugin, PluginContext, SparkPlugin}
 import org.apache.spark.internal.Logging
 import org.apache.spark.network.util.JavaUtils
@@ -116,6 +116,7 @@ private[gluten] class GlutenDriverPlugin extends DriverPlugin with Logging {
     glutenBuildInfo.put("Java Version", JAVA_COMPILE_VERSION)
     glutenBuildInfo.put("Scala Version", SCALA_COMPILE_VERSION)
     glutenBuildInfo.put("Spark Version", SPARK_COMPILE_VERSION)
+    glutenBuildInfo.put("Spark Revision", SPARK_REVISION)
     glutenBuildInfo.put("Hadoop Version", HADOOP_COMPILE_VERSION)
     glutenBuildInfo.put("Gluten Branch", BRANCH)
     glutenBuildInfo.put("Gluten Revision", REVISION)

@@ -20,6 +20,7 @@ import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.execution.BasicScanExecTransformer
 import org.apache.gluten.metrics.MetricsUpdater
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
+import org.apache.gluten.utils.{ANY, AnyExcept, BlockListedConfiguration, BlockListedSparkConfiguration, OneOf}
 
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.catalog.HiveTableRelation
@@ -175,6 +176,20 @@ case class HiveTableScanExecTransformer(
       relation.canonicalized.asInstanceOf[HiveTableRelation],
       QueryPlan.normalizePredicates(partitionPruningPred, input)
     )(sparkSession)
+  }
+
+  override protected def blockListedConfigurations: Seq[BlockListedConfiguration] = {
+    super.blockListedConfigurations ++ Seq(
+      BlockListedSparkConfiguration("spark.sql.files.ignoreCorruptFiles", AnyExcept("false")),
+      BlockListedSparkConfiguration("spark.sql.orc.impl", AnyExcept("native")),
+      BlockListedSparkConfiguration("orc.encrypt", ANY),
+      BlockListedSparkConfiguration("spark.sql.parquet.int96RebaseModeInRead", OneOf("LEGACY")),
+      BlockListedSparkConfiguration("spark.sql.parquet.datetimeRebaseModeInRead", OneOf("LEGACY")),
+      BlockListedSparkConfiguration("spark.sql.legacy.parquet.nanosAsLong", AnyExcept("false")),
+      BlockListedSparkConfiguration(
+        "spark.sql.parquet.int96TimestampConversion",
+        AnyExcept("false"))
+    )
   }
 }
 

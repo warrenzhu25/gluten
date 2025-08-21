@@ -23,7 +23,7 @@ import org.apache.gluten.metrics.MetricsUpdater
 import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
 import org.apache.gluten.substrait.rel.SplitInfo
-import org.apache.gluten.utils.FileIndexUtil
+import org.apache.gluten.utils.{ANY, AnyExcept, BlockListedConfiguration, BlockListedSparkConfiguration, FileIndexUtil, OneOf}
 
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions._
@@ -215,5 +215,19 @@ abstract class BatchScanExecTransformerBase(
     val result = s"$nodeName$truncatedOutputString ${scan.description()}" +
       s" $runtimeFiltersString $nativeFiltersString"
     redact(result)
+  }
+
+  override protected def blockListedConfigurations: Seq[BlockListedConfiguration] = {
+    super.blockListedConfigurations ++ Seq(
+      BlockListedSparkConfiguration("spark.sql.files.ignoreCorruptFiles", AnyExcept("false")),
+      BlockListedSparkConfiguration("spark.sql.orc.impl", AnyExcept("native")),
+      BlockListedSparkConfiguration("orc.encrypt", ANY),
+      BlockListedSparkConfiguration("spark.sql.parquet.int96RebaseModeInRead", OneOf("LEGACY")),
+      BlockListedSparkConfiguration("spark.sql.parquet.datetimeRebaseModeInRead", OneOf("LEGACY")),
+      BlockListedSparkConfiguration("spark.sql.legacy.parquet.nanosAsLong", AnyExcept("false")),
+      BlockListedSparkConfiguration(
+        "spark.sql.parquet.int96TimestampConversion",
+        AnyExcept("false"))
+    )
   }
 }

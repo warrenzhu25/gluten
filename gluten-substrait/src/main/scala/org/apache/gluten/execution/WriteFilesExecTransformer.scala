@@ -25,7 +25,7 @@ import org.apache.gluten.substrait.`type`.ColumnTypeNode
 import org.apache.gluten.substrait.SubstraitContext
 import org.apache.gluten.substrait.extensions.ExtensionBuilder
 import org.apache.gluten.substrait.rel.{RelBuilder, RelNode}
-import org.apache.gluten.utils.SubstraitUtil
+import org.apache.gluten.utils.{BlockListedConfiguration, BlockListedSparkConfiguration, OneOf, SubstraitUtil}
 
 import org.apache.spark.sql.catalyst.catalog.BucketSpec
 import org.apache.spark.sql.catalyst.catalog.CatalogTypes.TablePartitionSpec
@@ -188,6 +188,13 @@ case class WriteFilesExecTransformer(
 
   override protected def withNewChildInternal(newChild: SparkPlan): WriteFilesExecTransformer =
     copy(child = newChild)
+
+  override protected def blockListedConfigurations: Seq[BlockListedConfiguration] = {
+    super.blockListedConfigurations ++ Seq(
+      BlockListedSparkConfiguration("spark.sql.parquet.int96RebaseModeInWrite", OneOf("LEGACY")),
+      BlockListedSparkConfiguration("spark.sql.parquet.datetimeRebaseModeInWrite", OneOf("LEGACY"))
+    )
+  }
 }
 
 object WriteFilesExecTransformer {

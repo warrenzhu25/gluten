@@ -58,7 +58,9 @@ import org.apache.spark.storage.{BlockId, BlockManagerId}
 
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{FileStatus, LocatedFileStatus, Path}
+import org.apache.parquet.column.Encoding
 import org.apache.parquet.crypto.ParquetCryptoRuntimeException
+import org.apache.parquet.format.CompressionCodec
 import org.apache.parquet.format.converter.ParquetMetadataConverter
 import org.apache.parquet.hadoop.ParquetFileReader
 import org.apache.parquet.hadoop.metadata.FileMetaData.EncryptionType
@@ -69,6 +71,7 @@ import java.util.{HashMap => JHashMap, Map => JMap, Properties}
 
 import scala.collection.JavaConverters._
 import scala.reflect.ClassTag
+import scala.util.control.NonFatal
 
 class Spark35Shims extends SparkShims {
 
@@ -659,6 +662,69 @@ class Spark35Shims extends SparkShims {
       case e: Exception if ExceptionUtils.hasCause(e, classOf[ParquetCryptoRuntimeException]) =>
         true
       case e: Exception => false
+    }
+  }
+
+  override def isUnsupportedEncodingForParquetFile(
+      fileStatus: LocatedFileStatus,
+      conf: Configuration): Boolean = {
+    try {
+      val footer =
+        ParquetFileReader.readFooter(conf, fileStatus.getPath, ParquetMetadataConverter.NO_FILTER)
+      val targetEncoding = Encoding.DELTA_LENGTH_BYTE_ARRAY
+
+      val hasUnsupportedEncoding = footer.getBlocks.asScala.exists {
+        block =>
+          block.getColumns.asScala.exists(
+            col => {
+              col.getEncodings.contains(targetEncoding)
+            })
+      }
+
+      hasUnsupportedEncoding
+    } catch {
+      case NonFatal(e) =>
+        false
+    }
+  }
+
+  override def isUnsupportedCodecForParquetFile(
+      fileStatus: LocatedFileStatus,
+      conf: Configuration): Boolean = {
+    try {
+      val footer =
+        ParquetFileReader.readFooter(conf, fileStatus.getPath, ParquetMetadataConverter.NO_FILTER)
+      val unsupportedCodec = CompressionCodec.LZ4_RAW
+
+      val hasUnsupportedCompression = footer.getBlocks.asScala.exists {
+        block =>
+          block.getColumns.asScala.exists(
+            col => col.getCodec.getParquetCompressionCodec.equals(unsupportedCodec))
+      }
+
+      hasUnsupportedCompression
+    } catch {
+      case NonFatal(e) =>
+        false
+    }
+  }
+
+  def containsDatetimeRebaseMetadata(
+      fileStatus: LocatedFileStatus,
+      conf: Configuration): Boolean = {
+    try {
+      val fileMetadata =
+        ParquetFileReader
+          .readFooter(conf, fileStatus.getPath, ParquetMetadataConverter.NO_FILTER)
+          .getFileMetaData
+          .getKeyValueMetaData
+          .asScala
+      val sparkMetadataKey = Seq("org.apache.spark.legacyDateTime", "org.apache.spark.legacyINT96")
+
+      sparkMetadataKey.exists(key => fileMetadata.contains(key))
+    } catch {
+      case NonFatal(e) =>
+        false
     }
   }
 

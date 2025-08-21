@@ -508,6 +508,7 @@ class VeloxTestSettings extends BackendTestSettings {
     // jar path and ignore PARQUET_REBASE_MODE_IN_READ, rewrite some
     .excludeByPrefix("SPARK-31159")
     .excludeByPrefix("SPARK-35427")
+    .excludeGlutenTestsByPrefix("SPARK-31159")
   enableSuite[GlutenParquetRebaseDatetimeV2Suite]
     // Velox doesn't write file metadata into parquet file.
     .excludeByPrefix("SPARK-33163, SPARK-37705: write the metadata keys")

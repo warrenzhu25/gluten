@@ -22,7 +22,7 @@ import org.apache.gluten.extension.ValidationResult
 import org.apache.gluten.metrics.MetricsUpdater
 import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
-import org.apache.gluten.utils.{ANY, AnyExcept, BlockListedConfiguration, BlockListedSparkConfiguration, FileIndexUtil}
+import org.apache.gluten.utils.{ANY, AnyExcept, BlockListedConfiguration, BlockListedSparkConfiguration, FileIndexUtil, OneOf}
 
 import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference, Expression, PlanExpression}
@@ -62,7 +62,13 @@ case class FileSourceScanExecTransformer(
     super.blockListedConfigurations ++ Seq(
       BlockListedSparkConfiguration("spark.sql.files.ignoreCorruptFiles", AnyExcept("false")),
       BlockListedSparkConfiguration("spark.sql.orc.impl", AnyExcept("native")),
-      BlockListedSparkConfiguration("orc.encrypt", ANY)
+      BlockListedSparkConfiguration("orc.encrypt", ANY),
+      BlockListedSparkConfiguration("spark.sql.parquet.int96RebaseModeInRead", OneOf("LEGACY")),
+      BlockListedSparkConfiguration("spark.sql.parquet.datetimeRebaseModeInRead", OneOf("LEGACY")),
+      BlockListedSparkConfiguration("spark.sql.legacy.parquet.nanosAsLong", AnyExcept("false")),
+      BlockListedSparkConfiguration(
+        "spark.sql.parquet.int96TimestampConversion",
+        AnyExcept("false"))
     )
   }
 

@@ -385,6 +385,15 @@ class GlutenConfig(conf: SQLConf) extends Logging {
 
   def parquetEncryptionValidationEnabled: Boolean = getConf(ENCRYPTED_PARQUET_FALLBACK_ENABLED)
 
+  def parquetEncodingValidationEnabled: Boolean = getConf(
+    UNSUPPORTED_ENCODING_PARQUET_FALLBACK_ENABLED)
+
+  def parquetRebaseMetadataValidationEnabled: Boolean = getConf(
+    REBASE_METADATA_PARQUET_FALLBACK_ENABLED
+  )
+
+  def parquetCodecValidationEnabled: Boolean = getConf(UNSUPPORTED_CODEC_PARQUET_FALLBACK_ENABLED)
+
   def enableAutoAdjustStageResourceProfile: Boolean =
     getConf(AUTO_ADJUST_STAGE_RESOURCE_PROFILE_ENABLED)
 
@@ -394,6 +403,13 @@ class GlutenConfig(conf: SQLConf) extends Logging {
     getConf(AUTO_ADJUST_STAGE_RESOURCES_FALLEN_NODE_RATIO_THRESHOLD)
 
   def parquetEncryptionValidationFileLimit: Int = getConf(ENCRYPTED_PARQUET_FALLBACK_FILE_LIMIT)
+
+  def parquetEncodingValidationFileLimit: Int = getConf(ENCODING_CHECK_PARQUET_FALLBACK_FILE_LIMIT)
+
+  def parquetCodecValidationFileLimit: Int = getConf(CODEC_CHECK_PARQUET_FALLBACK_FILE_LIMIT)
+
+  def parquetRebaseMetadataValidationFileLimit: Int = getConf(
+    REBASE_METADATA_CHECK_PARQUET_FALLBACK_FILE_LIMIT)
 
   def enableColumnarRange: Boolean = getConf(COLUMNAR_RANGE_ENABLED)
 
@@ -1819,6 +1835,30 @@ object GlutenConfig {
       .booleanConf
       .createWithDefault(false)
 
+  val UNSUPPORTED_ENCODING_PARQUET_FALLBACK_ENABLED =
+    buildConf("spark.gluten.sql.fallbackUnsupportedEncodingParquet")
+      .internal()
+      .doc("If enabled, gluten will not offload scan when parquet files with " +
+        "unsupported encoding are detected")
+      .booleanConf
+      .createWithDefault(false)
+
+  val UNSUPPORTED_CODEC_PARQUET_FALLBACK_ENABLED =
+    buildConf("spark.gluten.sql.fallbackUnsupportedCodecParquet")
+      .internal()
+      .doc("If enabled, gluten will not offload scan when parquet files with " +
+        "unsupported codec are detected")
+      .booleanConf
+      .createWithDefault(false)
+
+  val REBASE_METADATA_PARQUET_FALLBACK_ENABLED =
+    buildConf("spark.gluten.sql.fallbackRebaseMetadataParquet")
+      .internal()
+      .doc("If enabled, gluten will not offload scan when parquet files with " +
+        "rebase metadata is found")
+      .booleanConf
+      .createWithDefault(false)
+
   val AUTO_ADJUST_STAGE_RESOURCE_PROFILE_ENABLED =
     buildConf("spark.gluten.auto.adjustStageResource.enabled")
       .internal()
@@ -1847,6 +1887,33 @@ object GlutenConfig {
       .internal()
       .doc("If supplied, `limit` number of files will be checked to determine encryption " +
         "and falling back java scan")
+      .intConf
+      .checkValue(_ > 0, s"must be positive.")
+      .createWithDefault(10)
+
+  val ENCODING_CHECK_PARQUET_FALLBACK_FILE_LIMIT =
+    buildConf("spark.gluten.sql.fallbackUnsupportedEncodingParquet.limit")
+      .internal()
+      .doc("If supplied, `limit` number of files will be checked to determine encoding " +
+        "and falling back java scan")
+      .intConf
+      .checkValue(_ > 0, s"must be positive.")
+      .createWithDefault(10)
+
+  val CODEC_CHECK_PARQUET_FALLBACK_FILE_LIMIT =
+    buildConf("spark.gluten.sql.fallbackUnsupportedCodecParquet.limit")
+      .internal()
+      .doc("If supplied, `limit` number of files will be checked to determine codec " +
+        "and falling back java scan")
+      .intConf
+      .checkValue(_ > 0, s"must be positive.")
+      .createWithDefault(10)
+
+  val REBASE_METADATA_CHECK_PARQUET_FALLBACK_FILE_LIMIT =
+    buildConf("spark.gluten.sql.fallbackRebaseMetadataParquet.limit")
+      .internal()
+      .doc("If supplied, `limit` number of files will be checked to determine rebase " +
+        "metadata in parquet files falling back java scan")
       .intConf
       .checkValue(_ > 0, s"must be positive.")
       .createWithDefault(10)

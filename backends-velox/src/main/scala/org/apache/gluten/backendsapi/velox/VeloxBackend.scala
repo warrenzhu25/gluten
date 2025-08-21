@@ -208,10 +208,70 @@ object VeloxBackendSettings extends BackendSettingsApi {
       }
     }
 
+    def validateEncoding(): Option[String] = {
+
+      val encodingValidationEnabled = GlutenConfig.get.parquetEncodingValidationEnabled
+      if (!encodingValidationEnabled) {
+        return None
+      }
+
+      val fileLimit = GlutenConfig.get.parquetEncodingValidationFileLimit
+      val encodingResult =
+        ParquetMetadataUtils.validateEncoding(format, rootPaths, serializableHadoopConf, fileLimit)
+      if (encodingResult.ok()) {
+        None
+      } else {
+        Some(s"Detected unsupported encoding in parquet files: ${encodingResult.reason()}")
+      }
+    }
+
+    def validateCodec(): Option[String] = {
+
+      val codecValidationEnabled = GlutenConfig.get.parquetCodecValidationEnabled
+      if (!codecValidationEnabled) {
+        return None
+      }
+
+      val fileLimit = GlutenConfig.get.parquetCodecValidationFileLimit
+      val codecResult =
+        ParquetMetadataUtils.validateCodec(format, rootPaths, serializableHadoopConf, fileLimit)
+      if (codecResult.ok()) {
+        None
+      } else {
+        Some(s"Detected unsupported codec in parquet files: ${codecResult.reason()}")
+      }
+    }
+
+    def validateRebaseMetadata(): Option[String] = {
+
+      val rebaseMetadataValidationEnabled = GlutenConfig.get.parquetRebaseMetadataValidationEnabled
+      if (!rebaseMetadataValidationEnabled) {
+        return None
+      }
+
+      val fileLimit = GlutenConfig.get.parquetRebaseMetadataValidationFileLimit
+      val rebaseMetadataResult =
+        ParquetMetadataUtils.validateRebaseMetadata(
+          format,
+          rootPaths,
+          serializableHadoopConf,
+          fileLimit)
+      if (rebaseMetadataResult.ok()) {
+        None
+      } else {
+        Some(
+          s"Detected unsupported rebase metadata in parquet files: " +
+            s"${rebaseMetadataResult.reason()}")
+      }
+    }
+
     val validationChecks = Seq(
       validateScheme(),
       validateFormat(),
-      validateEncryption()
+      validateEncryption(),
+      validateEncoding(),
+      validateCodec(),
+      validateRebaseMetadata()
     )
 
     for (check <- validationChecks) {

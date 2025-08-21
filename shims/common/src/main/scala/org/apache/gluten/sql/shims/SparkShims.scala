@@ -310,6 +310,14 @@ trait SparkShims {
 
   def isParquetFileEncrypted(fileStatus: LocatedFileStatus, conf: Configuration): Boolean
 
+  def isUnsupportedEncodingForParquetFile(
+      fileStatus: LocatedFileStatus,
+      conf: Configuration): Boolean
+
+  def isUnsupportedCodecForParquetFile(fileStatus: LocatedFileStatus, conf: Configuration): Boolean
+
+  def containsDatetimeRebaseMetadata(fileStatus: LocatedFileStatus, conf: Configuration): Boolean
+
   def isColumnarLimitExecSupported(): Boolean
 
   def getOtherConstantMetadataColumnValues(file: PartitionedFile): JMap[String, Object] =

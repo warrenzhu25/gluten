@@ -296,7 +296,7 @@ class FallbackSuite
       runQueryAndCompare("SELECT count(*) FROM tmp1") {
         df =>
           val plan = df.queryExecution.executedPlan
-          assert(collect(plan) { case g: GlutenPlan => g }.isEmpty)
+          assert(collect(plan) { case g: GlutenPlan => g }.nonEmpty)
       }
     }
 
@@ -323,7 +323,7 @@ class FallbackSuite
       runQueryAndCompare("SELECT count(*) FROM tmp1") {
         df =>
           val plan = df.queryExecution.executedPlan
-          assert(collect(plan) { case g: GlutenPlan => g }.isEmpty)
+          assert(collect(plan) { case g: GlutenPlan => g }.nonEmpty)
       }
     }
 

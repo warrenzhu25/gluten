@@ -148,10 +148,8 @@ trait ValidatablePlan extends GlutenPlan with LogLevelUtil {
     // TODO: Handle fs.gs.project.id set to non submitting project. (By default this is set to
     //  submitting project)
     // TODO: Add spark configurations.
-    BlockListedHadoopConfiguration("fs.gs.working.dir", AnyExcept("/")),
     BlockListedHadoopConfiguration("fs.gs.implicit.dir.repair.enable", AnyExcept("true")),
     BlockListedHadoopConfiguration("fs.gs.delegation.token.binding", ANY),
-    BlockListedHadoopConfiguration("fs.gs.max.wait.for.empty.object.creation", AnyExcept("3s")),
     BlockListedHadoopConfigurationPrefix("fs.gs.storage.http.headers", ANY),
     BlockListedHadoopConfiguration("fs.gs.encryption.algorithm", ANY),
     BlockListedHadoopConfiguration("fs.gs.encryption.key", ANY),

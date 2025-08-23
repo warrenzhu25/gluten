@@ -10,25 +10,45 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 # to prompt for region selection.
 ENV DEBIAN_FRONTEND="noninteractive" TZ=${tz}
 
-RUN apt-get update && apt-get install -y \
-    curl \
-    git \
-    build-essential \
+RUN apt-get update &&
+    apt-get -y upgrade &&
+    apt-get install -y \
     wget \
-    cmake \
-    ninja-build \
-    sudo \
-    vim \
     apt-transport-https \
-    xclip \
-    libre2-dev \
-    openjdk-17-jdk \
+    gpg \
+    sudo \
+    git \
+    vim \
+    curl \
+    zip \
+    unzip \
+    tar \
+    gcc \
+    g++ \
+    pkg-config \
+    make \
+    bison \
+    autoconf \
+    libtool \
+    python3 \
+    autoconf-archive \
+    flex \
+    ninja-build \
+    python3-pip \
     ccache
+
+RUN pip3 install cmake==3.28.3 --break-system-packages
 
 RUN /usr/sbin/update-ccache-symlinks
 ENV PATH="/usr/lib/ccache:${PATH}"
 
-ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+WORKDIR /opt
+
+RUN wget -qO - https://packages.adoptium.net/artifactory/api/gpg/key/public | gpg --dearmor | tee /etc/apt/trusted.gpg.d/adoptium.gpg
+RUN echo "deb https://packages.adoptium.net/artifactory/deb $(awk -F= '/^VERSION_CODENAME/{print$2}' /etc/os-release) main" | tee /etc/apt/sources.list.d/adoptium.list
+RUN apt-get update
+RUN apt-get install -y temurin-17-jdk
+ENV JAVA_HOME="/usr/lib/jvm/temurin-17-jdk-amd64"
 
 #MAVEN
 ARG MAVEN_VERSION="3.9.10"

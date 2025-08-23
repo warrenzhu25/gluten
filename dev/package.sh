@@ -27,7 +27,20 @@ cd "$GLUTEN_DIR"
 
 # build gluten with velox backend, prompt always respond y
 export PROMPT_ALWAYS_RESPOND=y
-./dev/buildbundle-veloxbe.sh --enable_vcpkg=OFF --build_tests=ON --build_benchmarks=ON --enable_s3=OFF  --enable_hdfs=OFF "$@"
+./dev/buildbundle-veloxbe.sh --enable_vcpkg=ON --build_tests=ON --build_benchmarks=ON --enable_s3=OFF  --enable_hdfs=OFF "$@"
 
-# make thirdparty package
-./dev/build-thirdparty.sh
+BUILD_THIRDPARTY="OFF"
+for arg in "$@"
+do
+  case $arg in
+    --build_thirdparty=*)
+    BUILD_THIRDPARTY=("${arg#*=}")
+    shift # Remove argument name from processing
+    ;;
+  esac
+done
+
+if [[ "$BUILD_THIRDPARTY" == "ON" ]]; then
+  # make thirdparty package
+  ./dev/build-thirdparty.sh
+fi

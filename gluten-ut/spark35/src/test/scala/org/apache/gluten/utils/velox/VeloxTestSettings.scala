@@ -602,6 +602,7 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("replace partial and final hash aggregate together with sort aggregate")
     .exclude("do not replace hash aggregate if child does not have sort order")
     .exclude("do not replace hash aggregate if there is no group-by column")
+    .excludeGlutenTest("replace partial and final hash aggregate together with sort aggregate")
   enableSuite[GlutenReuseExchangeAndSubquerySuite]
   enableSuite[GlutenSameResultSuite]
   enableSuite[GlutenSortSuite]

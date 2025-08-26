@@ -22,6 +22,8 @@ import org.apache.spark.SparkConf
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.execution.adaptive.{DisableAdaptiveExecutionSuite, EnableAdaptiveExecutionSuite}
 
+import org.scalatest.Ignore
+
 abstract class BaseMergeTwoPhasesHashBaseAggregateSuite extends WholeStageTransformerSuite {
   val fileFormat: String = "parquet"
   override protected val resourcePath: String = "/tpch-data-parquet"
@@ -191,10 +193,14 @@ abstract class BaseMergeTwoPhasesHashBaseAggregateSuite extends WholeStageTransf
   }
 }
 
+// MergeTwoPhasesHashBaseAggregate rule is removed.
+@Ignore
 class MergeTwoPhasesAggregateSuiteAEOn
   extends BaseMergeTwoPhasesHashBaseAggregateSuite
   with EnableAdaptiveExecutionSuite
 
+// MergeTwoPhasesHashBaseAggregate rule is removed.
+@Ignore
 class MergeTwoPhasesAggregateSuiteAEOff
   extends BaseMergeTwoPhasesHashBaseAggregateSuite
   with DisableAdaptiveExecutionSuite

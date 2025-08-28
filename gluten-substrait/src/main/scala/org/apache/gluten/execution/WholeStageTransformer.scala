@@ -29,7 +29,7 @@ import org.apache.gluten.substrait.SubstraitContext
 import org.apache.gluten.substrait.plan.{PlanBuilder, PlanNode}
 import org.apache.gluten.substrait.rel.{LocalFilesNode, RelNode, SplitInfo}
 import org.apache.gluten.test.TestStats
-import org.apache.gluten.utils.{ANY, AnyExcept, BlockListedConfiguration, BlockListedHadoopConfiguration, BlockListedHadoopConfigurationPrefix, SubstraitPlanPrinterUtil}
+import org.apache.gluten.utils.{ANY, BlockListedConfiguration, BlockListedHadoopConfiguration, BlockListedHadoopConfigurationPrefix, SubstraitPlanPrinterUtil}
 
 import org.apache.spark._
 import org.apache.spark.rdd.RDD
@@ -148,7 +148,6 @@ trait ValidatablePlan extends GlutenPlan with LogLevelUtil {
     // TODO: Handle fs.gs.project.id set to non submitting project. (By default this is set to
     //  submitting project)
     // TODO: Add spark configurations.
-    BlockListedHadoopConfiguration("fs.gs.implicit.dir.repair.enable", AnyExcept("true")),
     BlockListedHadoopConfiguration("fs.gs.delegation.token.binding", ANY),
     BlockListedHadoopConfigurationPrefix("fs.gs.storage.http.headers", ANY),
     BlockListedHadoopConfiguration("fs.gs.encryption.algorithm", ANY),

@@ -31,6 +31,7 @@ import java.util.Enumeration;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipException;
 import java.util.zip.ZipFile;
@@ -65,8 +66,12 @@ public class ResourceUtil {
     } catch (IOException e) {
       throw new GlutenException(e);
     }
-    while (containerUrls.hasMoreElements()) {
-      final URL containerUrl = containerUrls.nextElement();
+    final List<URL> uniqueContainerUrls =
+        Collections.list(containerUrls).stream()
+            .distinct()
+            .collect(Collectors.toUnmodifiableList());
+
+    for (final URL containerUrl : uniqueContainerUrls) {
       getResources(containerUrl, pattern, buffer);
     }
     return Collections.unmodifiableList(buffer);

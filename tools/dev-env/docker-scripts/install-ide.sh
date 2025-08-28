@@ -6,8 +6,8 @@ set -ex
 apt update && apt install -y libcanberra-gtk3-module
 
 #CLION
-CLION_VERSION=2025.1.2
-CLION_BUILD=2025.1.2
+CLION_VERSION=2025.2
+CLION_BUILD=2025.2
 clion_source=https://download.jetbrains.com/cpp/CLion-${CLION_BUILD}.tar.gz
 clion_local_dir=.CLion${CLION_BUILD}
 mkdir -p /opt/clion
@@ -18,8 +18,8 @@ wget -O /opt/clion/installer.tgz $clion_source && \
 mkdir /root/.CLion && ln -sf /root/.CLion /root/$clion_local_dir
 
 #INTELIJ
-IDEA_VERSION=2025.1.2
-IDEA_BUILD=2025.1.2
+IDEA_VERSION=2025.2
+IDEA_BUILD=2025.2
 idea_source=https://download.jetbrains.com/idea/ideaIC-${IDEA_BUILD}.tar.gz
 idea_local_dir=.IdeaIC${IDEA_VERSION}
 mkdir -p /opt/idea

@@ -10,8 +10,8 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 # to prompt for region selection.
 ENV DEBIAN_FRONTEND="noninteractive" TZ=${tz}
 
-RUN apt-get update &&
-    apt-get -y upgrade &&
+RUN apt-get update && \
+    apt-get -y upgrade && \
     apt-get install -y \
     wget \
     apt-transport-https \

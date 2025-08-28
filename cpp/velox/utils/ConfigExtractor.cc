@@ -170,6 +170,19 @@ std::shared_ptr<facebook::velox::config::ConfigBase> getHiveConfig(
     hiveConfMap[facebook::velox::connector::hive::HiveConfig::kGcsMaxRetryTime] = gsMaxRetryTime.value();
   }
 
+  auto gsEncryptionAlgorithm = conf->get<std::string>("spark.hadoop.fs.gs.encryption.algorithm");
+  if (gsEncryptionAlgorithm.hasValue()) {
+    hiveConfMap[facebook::velox::connector::hive::HiveConfig::kGcsEncryptionAlgorithm] = gsEncryptionAlgorithm.value();
+  }
+  auto gsEncryptionKey = conf->get<std::string>("spark.hadoop.fs.gs.encryption.key");
+  if (gsEncryptionKey.hasValue()) {
+    hiveConfMap[facebook::velox::connector::hive::HiveConfig::kGcsEncryptionKey] = gsEncryptionKey.value();
+  }
+  auto gsEncryptionKeyHash = conf->get<std::string>("spark.hadoop.fs.gs.encryption.key.hash");
+  if (gsEncryptionKeyHash.hasValue()) {
+    hiveConfMap[facebook::velox::connector::hive::HiveConfig::kGcsEncryptionKeyHash] = gsEncryptionKeyHash.value();
+  }
+
   // https://github.com/GoogleCloudDataproc/hadoop-connectors/blob/master/gcs/CONFIGURATION.md#authentication
   auto gsAuthType = conf->get<std::string>("spark.hadoop.fs.gs.auth.type");
   if (gsAuthType.hasValue()) {

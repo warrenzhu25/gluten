@@ -149,10 +149,7 @@ trait ValidatablePlan extends GlutenPlan with LogLevelUtil {
     //  submitting project)
     // TODO: Add spark configurations.
     BlockListedHadoopConfiguration("fs.gs.delegation.token.binding", ANY),
-    BlockListedHadoopConfigurationPrefix("fs.gs.storage.http.headers", ANY),
-    BlockListedHadoopConfiguration("fs.gs.encryption.algorithm", ANY),
-    BlockListedHadoopConfiguration("fs.gs.encryption.key", ANY),
-    BlockListedHadoopConfiguration("fs.gs.encryption.key.hash", ANY)
+    BlockListedHadoopConfigurationPrefix("fs.gs.storage.http.headers", ANY)
   )
 
   private def logValidationMessage(msg: => String, e: Throwable): Unit = {

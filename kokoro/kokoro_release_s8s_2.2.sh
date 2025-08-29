@@ -9,7 +9,7 @@ echo "Running as " "$(whoami)"
 download_maven
 
 JAVA_VERSION="Java17"
-SPARK_VERSION="3.5.1"
+SPARK_VERSION="3.5.3"
 SCALA_VERSION="2.13"
 
 build_jars "${OS_VERSION}" "${JAVA_VERSION}" "${SPARK_VERSION}" "${SCALA_VERSION}"
@@ -24,7 +24,7 @@ if [ "$PUBLISH_JARS_TO_AR" == "yes" ]; then
   cp "${GLUTEN_DIR}"/package/target/"${VELOX_BUNDLE_JAR}" "${BASE_DIR}"
 
   cd "${GLUTEN_DIR}"
-  upload_jar "s8s-2.2-velox-bundle-Debian12" "${VERSION}" "${DESCRIPTION}" "${BASE_DIR}/${VELOX_BUNDLE_JAR}"
+  upload_jar "s8s-2.2-velox-bundle-${OS_VERSION}" "${VERSION}" "${DESCRIPTION}" "${BASE_DIR}/${VELOX_BUNDLE_JAR}"
 fi
 
 # Upload to GCS Location

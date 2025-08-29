@@ -24,7 +24,7 @@ if [ "$PUBLISH_JARS_TO_AR" == "yes" ]; then
   cp "${GLUTEN_DIR}"/package/target/"${VELOX_BUNDLE_JAR}" "${BASE_DIR}"
 
   cd "${GLUTEN_DIR}"
-  upload_jar "dpgce-2.3-velox-bundle-Debian12" "${VERSION}" "${DESCRIPTION}" "${BASE_DIR}/${VELOX_BUNDLE_JAR}"
+  upload_jar "dpgce-2.3-velox-bundle-${OS_VERSION}" "${VERSION}" "${DESCRIPTION}" "${BASE_DIR}/${VELOX_BUNDLE_JAR}"
 fi
 
 # Upload to GCS Location

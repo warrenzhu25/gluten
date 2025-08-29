@@ -263,7 +263,7 @@ concat_velox_param
 function build_spark {
   echo "Start to build Spark"
   cd $GLUTEN_DIR/ep/build-spark/src
-  ./build_spark.sh --spark_version=$SPARK_VERSION --spark_home=$SPARK_HOME
+  ./build_spark.sh --spark_version=$SPARK_VERSION --spark_home=$SPARK_HOME --scala_version=$SCALA_VERSION
 }
 
 function build_arrow {

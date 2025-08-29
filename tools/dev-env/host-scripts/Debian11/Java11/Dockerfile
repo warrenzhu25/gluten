@@ -10,20 +10,34 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 # to prompt for region selection.
 ENV DEBIAN_FRONTEND="noninteractive" TZ=${tz}
 
-RUN apt-get update && apt-get install -y \
-    curl \
-    git \
-    build-essential \
+RUN apt-get update && \
+    apt-get -y upgrade && \
+    apt-get install -y \
     wget \
-    cmake \
-    ninja-build \
-    sudo \
-    vim \
     apt-transport-https \
-    xclip \
-    libre2-dev \
+    gpg \
+    sudo \
+    git \
+    vim \
+    curl \
+    zip \
+    unzip \
+    tar \
+    gcc \
+    g++ \
+    pkg-config \
+    make \
+    bison \
+    autoconf \
+    libtool \
+    python3 \
+    autoconf-archive \
+    flex \
+    ninja-build \
     python3-pip \
     ccache
+
+RUN pip3 install cmake==3.28.3
 
 RUN /usr/sbin/update-ccache-symlinks
 ENV PATH="/usr/lib/ccache:${PATH}"

@@ -31,3 +31,5 @@ fi
 if [ "$PUBLISH_JARS_TO_GCS" == "yes" ]; then
   gsutil cp "${GLUTEN_DIR}"/package/target/"${VELOX_BUNDLE_JAR}" gs://nqe-release-jars/native-dpgce-2.3/${OS_VERSION}/
 fi
+
+sudo rm -rf "${GLUTEN_DIR}"

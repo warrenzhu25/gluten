@@ -183,6 +183,7 @@ case class HiveTableScanExecTransformer(
       BlockListedSparkConfiguration("spark.sql.files.ignoreCorruptFiles", AnyExcept("false")),
       BlockListedSparkConfiguration("spark.sql.orc.impl", AnyExcept("native")),
       BlockListedSparkConfiguration("orc.encrypt", ANY),
+      BlockListedSparkConfiguration("spark.sql.hive.convertMetastoreParquet", AnyExcept("true")),
       BlockListedSparkConfiguration("spark.sql.parquet.int96RebaseModeInRead", OneOf("LEGACY")),
       BlockListedSparkConfiguration("spark.sql.parquet.datetimeRebaseModeInRead", OneOf("LEGACY")),
       BlockListedSparkConfiguration("spark.sql.legacy.parquet.nanosAsLong", AnyExcept("false")),

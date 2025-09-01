@@ -130,3 +130,13 @@ Quickly rebuilds the project inside an existing environment. It uses build cache
 | -j              | Java Version           | Java11 <br>Java17 (Default)                  |
 | -r              | Will use release env   | By default will use dev env                  |
 | -s              | Rebuild Spark when set | By default this is not set                   |
+
+## Instructions to setup CLion for Velox
+1. Run below commands from inside the Velox home directory
+```
+git apply prow/velox-prow-build.patch
+PROMPT_ALWAYS_RESPOND=Y ./scripts/setup-ubuntu.sh
+PROMPT_ALWAYS_RESPOND=Y ./scripts/setup-adapters.sh gcs
+```
+2. Make sure `Cmake` version is set to `3.28.3` in `Settings -> Build, Execution, Deployment -> Toolchains`
+3. Also, add these configs `-DVELOX_ENABLE_PARQUET=ON -DVELOX_BUILD_TESTING=ON -DVELOX_ENABLE_GCS=ON -DCMAKE_BUILD_TYPE=Debug -DCMAKE_PREFIX_PATH=/path/to/deps-download-folder-in-velox` to CMake options and click Apply.

@@ -89,12 +89,6 @@ object ExecUtil {
       writeMetrics: Map[String, SQLMetric],
       metrics: Map[String, SQLMetric],
       isSort: Boolean): ShuffleDependency[Int, ColumnarBatch, ColumnarBatch] = {
-    metrics("numPartitions").set(newPartitioning.numPartitions)
-    val executionId = rdd.sparkContext.getLocalProperty(SQLExecution.EXECUTION_ID_KEY)
-    SQLMetrics.postDriverMetricUpdates(
-      rdd.sparkContext,
-      executionId,
-      metrics("numPartitions") :: Nil)
     // scalastyle:on argcount
     // only used for fallback range partitioning
     val rangePartitioner: Option[Partitioner] = newPartitioning match {
@@ -160,6 +154,18 @@ object ExecUtil {
         .create()
     }
 
+    val finalNumPartitions: Int = newPartitioning match {
+      case RangePartitioning(orders, n) => rangePartitioner.map(_.numPartitions).getOrElse(n)
+      case _ => newPartitioning.numPartitions
+    }
+
+    metrics("numPartitions").set(finalNumPartitions)
+    val executionId = rdd.sparkContext.getLocalProperty(SQLExecution.EXECUTION_ID_KEY)
+    SQLMetrics.postDriverMetricUpdates(
+      rdd.sparkContext,
+      executionId,
+      metrics("numPartitions") :: Nil)
+
     val nativePartitioning: NativePartitioning = newPartitioning match {
       case SinglePartition =>
         new NativePartitioning(GlutenShuffleUtils.SinglePartitioningShortName, 1)
@@ -169,7 +175,7 @@ object ExecUtil {
         new NativePartitioning(GlutenShuffleUtils.HashPartitioningShortName, n)
       // range partitioning fall back to row-based partition id computation
       case RangePartitioning(orders, n) =>
-        new NativePartitioning(GlutenShuffleUtils.RangePartitioningShortName, n)
+        new NativePartitioning(GlutenShuffleUtils.RangePartitioningShortName, finalNumPartitions)
     }
 
     val isRoundRobin = newPartitioning.isInstanceOf[RoundRobinPartitioning] &&
@@ -204,7 +210,7 @@ object ExecUtil {
     val dependency =
       new ColumnarShuffleDependency[Int, ColumnarBatch, ColumnarBatch](
         rddWithDummyKey,
-        new PartitionIdPassThrough(newPartitioning.numPartitions),
+        new PartitionIdPassThrough(finalNumPartitions),
         serializer,
         shuffleWriterProcessor = ShuffleExchangeExec.createShuffleWriteProcessor(writeMetrics),
         nativePartitioning = nativePartitioning,

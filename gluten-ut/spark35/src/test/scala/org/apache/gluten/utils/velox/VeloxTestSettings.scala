@@ -208,7 +208,8 @@ class VeloxTestSettings extends BackendTestSettings {
       "SPARK-33933",
       "SPARK-31220",
       "SPARK-35874",
-      "SPARK-39551"
+      "SPARK-39551",
+      "SPARK-39915"
     )
     .include(
       "Union/Except/Intersect queries",

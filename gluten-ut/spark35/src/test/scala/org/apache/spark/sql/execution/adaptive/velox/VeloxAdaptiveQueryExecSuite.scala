@@ -897,7 +897,7 @@ class VeloxAdaptiveQueryExecSuite extends AdaptiveQueryExecSuite with GlutenSQLT
       df.collect()
       val plan = df.queryExecution.executedPlan
       assert(hasRepartitionShuffle(plan) == !optimizeOutRepartition)
-      val smj = findTopLevelSortMergeJoin(plan)
+      val smj = findTopLevelSortMergeJoinTransform(plan)
       assert(smj.length == 1)
       assert(smj.head.isSkewJoin == optimizeSkewJoin)
       val aqeReads = collect(smj.head) { case c: AQEShuffleReadExec => c }
@@ -1312,8 +1312,15 @@ class VeloxAdaptiveQueryExecSuite extends AdaptiveQueryExecSuite with GlutenSQLT
         aqeReads.foreach {
           c =>
             val stats = c.child.asInstanceOf[QueryStageExec].getRuntimeStatistics
-            assert(stats.sizeInBytes >= 0)
-            assert(stats.rowCount.get >= 0)
+            val rowCount = stats.rowCount.get
+            assert(rowCount >= 0)
+            if (rowCount == 0) {
+              // For empty relation, the query stage doesn't serialize any bytes.
+              // The SQLMetric keeps initial value.
+              assert(stats.sizeInBytes == -1)
+            } else {
+              assert(stats.sizeInBytes > 0)
+            }
         }
       }
     }

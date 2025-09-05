@@ -45,6 +45,10 @@ cp -r $SPARK_HOME/../spark-deps/* /root/.m2/repository/
 cd $SPARK_HOME
 git checkout dataproc-branch-${SPARK_VERSION}
 
+if [[ "${SCALA_VERSION}" == '2.13' ]]; then
+  git apply "${CURRENT_DIR}"/patch-*.diff
+fi
+
 # Build Spark
 echo "Building Spark..."
 mkdir -p .mvn

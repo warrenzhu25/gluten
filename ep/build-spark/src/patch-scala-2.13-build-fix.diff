@@ -1,0 +1,479 @@
+diff --git a/common/network-yarn/pom.xml b/common/network-yarn/pom.xml
+index 3c954926903..ffa13e2f60e 100644
+--- a/common/network-yarn/pom.xml
++++ b/common/network-yarn/pom.xml
+@@ -172,19 +172,29 @@
+             <id>unpack</id>
+             <phase>package</phase>
+             <configuration>
+-                <target>
+-                    <echo message="Shade netty native libraries to ${spark.shade.native.packageName}" />
+-                    <unzip src="${shuffle.jar}" dest="${project.build.directory}/exploded/" />
+-                    <move file="${project.build.directory}/exploded/META-INF/native/libnetty_transport_native_epoll_x86_64.so"
+-                          tofile="${project.build.directory}/exploded/META-INF/native/lib${spark.shade.native.packageName}_netty_transport_native_epoll_x86_64.so" />
+-                    <move file="${project.build.directory}/exploded/META-INF/native/libnetty_transport_native_kqueue_x86_64.jnilib"
+-                          tofile="${project.build.directory}/exploded/META-INF/native/lib${spark.shade.native.packageName}_netty_transport_native_kqueue_x86_64.jnilib" />
+-                    <move file="${project.build.directory}/exploded/META-INF/native/libnetty_transport_native_epoll_aarch_64.so"
+-                          tofile="${project.build.directory}/exploded/META-INF/native/lib${spark.shade.native.packageName}_netty_transport_native_epoll_aarch_64.so" />
+-                    <move file="${project.build.directory}/exploded/META-INF/native/libnetty_transport_native_kqueue_aarch_64.jnilib"
+-                          tofile="${project.build.directory}/exploded/META-INF/native/lib${spark.shade.native.packageName}_netty_transport_native_kqueue_aarch_64.jnilib" />
+-                    <jar destfile="${shuffle.jar}" basedir="${project.build.directory}/exploded" />
+-                </target>
++              <target>
++                <echo message="Shade netty native libraries to ${spark.shade.native.packageName}" />
++                <unzip src="${shuffle.jar}" dest="${project.build.directory}/exploded/" />
++                <move file="${project.build.directory}/exploded/META-INF/native/libnetty_transport_native_epoll_x86_64.so"
++                  tofile="${project.build.directory}/exploded/META-INF/native/lib${spark.shade.native.packageName}_netty_transport_native_epoll_x86_64.so" />
++                <move file="${project.build.directory}/exploded/META-INF/native/libnetty_transport_native_kqueue_x86_64.jnilib"
++                  tofile="${project.build.directory}/exploded/META-INF/native/lib${spark.shade.native.packageName}_netty_transport_native_kqueue_x86_64.jnilib" />
++                <move file="${project.build.directory}/exploded/META-INF/native/libnetty_transport_native_epoll_aarch_64.so"
++                  tofile="${project.build.directory}/exploded/META-INF/native/lib${spark.shade.native.packageName}_netty_transport_native_epoll_aarch_64.so" />
++                <move file="${project.build.directory}/exploded/META-INF/native/libnetty_transport_native_kqueue_aarch_64.jnilib"
++                  tofile="${project.build.directory}/exploded/META-INF/native/lib${spark.shade.native.packageName}_netty_transport_native_kqueue_aarch_64.jnilib" />
++                <move file="${project.build.directory}/exploded/META-INF/native/libnetty_transport_native_epoll_riscv64.so"
++                  tofile="${project.build.directory}/exploded/META-INF/native/lib${spark.shade.native.packageName}_netty_transport_native_epoll_riscv64.so" />
++                <move file="${project.build.directory}/exploded/META-INF/native/libnetty_tcnative_linux_x86_64.so"
++                  tofile="${project.build.directory}/exploded/META-INF/native/lib${spark.shade.native.packageName}_netty_tcnative_linux_x86_64.so" />
++                <move file="${project.build.directory}/exploded/META-INF/native/libnetty_tcnative_linux_aarch_64.so"
++                  tofile="${project.build.directory}/exploded/META-INF/native/lib${spark.shade.native.packageName}_netty_tcnative_linux_aarch_64.so" />
++                <move file="${project.build.directory}/exploded/META-INF/native/libnetty_tcnative_osx_x86_64.jnilib"
++                  tofile="${project.build.directory}/exploded/META-INF/native/lib${spark.shade.native.packageName}_netty_tcnative_osx_x86_64.jnilib" />
++                <move file="${project.build.directory}/exploded/META-INF/native/libnetty_tcnative_osx_aarch_64.jnilib"
++                  tofile="${project.build.directory}/exploded/META-INF/native/lib${spark.shade.native.packageName}_netty_tcnative_osx_aarch_64.jnilib" />
++                <jar destfile="${shuffle.jar}" basedir="${project.build.directory}/exploded" />
++              </target>
+             </configuration>
+             <goals>
+               <goal>run</goal>
+diff --git a/connector/connect/common/src/main/buf.gen.yaml b/connector/connect/common/src/main/buf.gen.yaml
+index 90224745357..9b0b07932ea 100644
+--- a/connector/connect/common/src/main/buf.gen.yaml
++++ b/connector/connect/common/src/main/buf.gen.yaml
+@@ -22,14 +22,14 @@ plugins:
+     out: gen/proto/csharp
+   - plugin: buf.build/protocolbuffers/java:v21.7
+     out: gen/proto/java
+-  - plugin: buf.build/grpc/ruby:v1.59.3
++  - plugin: buf.build/grpc/ruby:v1.62.0
+     out: gen/proto/ruby
+   - plugin: buf.build/protocolbuffers/ruby:v21.7
+     out: gen/proto/ruby
+    # Building the Python build and building the mypy interfaces.
+   - plugin: buf.build/protocolbuffers/python:v21.7
+     out: gen/proto/python
+-  - plugin: buf.build/grpc/python:v1.59.3
++  - plugin: buf.build/grpc/python:v1.62.0
+     out: gen/proto/python
+   - name: mypy
+     out: gen/proto/python
+diff --git a/connector/connect/server/pom.xml b/connector/connect/server/pom.xml
+index 983d4f087a6..e4421d9b9c7 100644
+--- a/connector/connect/server/pom.xml
++++ b/connector/connect/server/pom.xml
+@@ -190,6 +190,17 @@
+       <artifactId>grpc-protobuf</artifactId>
+       <version>${io.grpc.version}</version>
+     </dependency>
++    <dependency>
++      <groupId>io.grpc</groupId>
++      <artifactId>grpc-protobuf-lite</artifactId>
++      <version>${io.grpc.version}</version>
++      <exclusions>
++        <exclusion>
++          <groupId>com.google.protobuf</groupId>
++          <artifactId>protobuf-javalite</artifactId>
++        </exclusion>
++      </exclusions>
++    </dependency>
+     <dependency>
+       <groupId>io.grpc</groupId>
+       <artifactId>grpc-services</artifactId>
+diff --git a/core/benchmarks/MapStatusesConvertBenchmark-results.txt b/core/benchmarks/MapStatusesConvertBenchmark-results.txt
+index 38e2315f26f..eafd72dbe8b 100644
+--- a/core/benchmarks/MapStatusesConvertBenchmark-results.txt
++++ b/core/benchmarks/MapStatusesConvertBenchmark-results.txt
+@@ -2,12 +2,12 @@
+ MapStatuses Convert Benchmark
+ ================================================================================================
+ 
+-OpenJDK 64-Bit Server VM 1.8.0_372-b07 on Linux 5.15.0-1040-azure
+-Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz
++OpenJDK 64-Bit Server VM 17.0.10+7-LTS on Linux 6.5.0-1016-azure
++AMD EPYC 7763 64-Core Processor
+ MapStatuses Convert:                      Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+ ------------------------------------------------------------------------------------------------------------------------
+-Num Maps: 50000 Fetch partitions:500               1031           1042          12          0.0  1031225384.0       1.0X
+-Num Maps: 50000 Fetch partitions:1000              1871           1874           5          0.0  1870822534.0       0.6X
+-Num Maps: 50000 Fetch partitions:1500              2908           3102         275          0.0  2908201486.0       0.4X
++Num Maps: 50000 Fetch partitions:500                714            716           2          0.0   713899011.0       1.0X
++Num Maps: 50000 Fetch partitions:1000              1602           1647          59          0.0  1602358288.0       0.4X
++Num Maps: 50000 Fetch partitions:1500              2517           2538          22          0.0  2517027078.0       0.3X
+ 
+ 
+diff --git a/dev/requirements.txt b/dev/requirements.txt
+index 139907dcbbb..3a036bc94f1 100644
+--- a/dev/requirements.txt
++++ b/dev/requirements.txt
+@@ -51,10 +51,9 @@ black==22.6.0
+ py
+ 
+ # Spark Connect (required)
+-grpcio==1.59.3
+-grpcio-status==1.59.3
+-protobuf==3.20.3
+-googleapis-common-protos==1.56.4
++grpcio>=1.62.0
++grpcio-status>=1.62.0
++googleapis-common-protos>=1.56.4
+ 
+ # Spark Connect python proto generation plugin (optional)
+ mypy-protobuf==3.3.0
+diff --git a/pom.xml b/pom.xml
+index ba4ff1841d5..cd08ad2b773 100644
+--- a/pom.xml
++++ b/pom.xml
+@@ -119,17 +119,17 @@
+     <exec-maven-plugin.version>3.1.0</exec-maven-plugin.version>
+     <sbt.project.name>spark</sbt.project.name>
+     <asm.version>9.6</asm.version>
+-    <slf4j.version>2.0.9</slf4j.version>
+-    <log4j.version>2.22.0</log4j.version>
++    <slf4j.version>2.0.12</slf4j.version>
++    <log4j.version>2.22.1</log4j.version>
+     <!-- make sure to update IsolatedClientLoader whenever this version is changed -->
+     <hadoop.version>3.3.6</hadoop.version>
+     <dataproc.rm.version>1.0.3</dataproc.rm.version>
+     <!-- SPARK-41247: When updating `protobuf.version`, also need to update `protoVersion` in `SparkBuild.scala` -->
+-    <protobuf.version>3.25.1</protobuf.version>
++    <protobuf.version>3.25.3</protobuf.version>
+     <protoc-jar-maven-plugin.version>3.11.4</protoc-jar-maven-plugin.version>
+     <yarn.version>${hadoop.version}</yarn.version>
+-    <zookeeper.version>3.9.1</zookeeper.version>
+-    <curator.version>5.2.0</curator.version>
++    <zookeeper.version>3.9.2</zookeeper.version>
++    <curator.version>5.6.0</curator.version>
+     <hive.group>org.apache.hive</hive.group>
+     <hive.classifier>core</hive.classifier>
+     <!-- Version used in Maven Hive dependency -->
+@@ -157,7 +157,7 @@
+     If you changes codahale.metrics.version, you also need to change
+     the link to metrics.dropwizard.io in docs/monitoring.md.
+     -->
+-    <codahale.metrics.version>4.2.21</codahale.metrics.version>
++    <codahale.metrics.version>4.2.25</codahale.metrics.version>
+     <!-- Should be consistent with SparkBuild.scala and docs -->
+     <avro.version>1.11.4</avro.version>
+     <aws.kinesis.client.version>1.12.0</aws.kinesis.client.version>
+@@ -176,10 +176,10 @@
+     <scala.binary.version>2.12</scala.binary.version>
+     <scala-collection-compat.version>2.7.0</scala-collection-compat.version>
+     <scalatest-maven-plugin.version>2.2.0</scalatest-maven-plugin.version>
+-    <!-- dont update scala-maven-plugin to version 4.8.1 SPARK-42809 and SPARK-43595 -->   
+-    <scala-maven-plugin.version>4.8.0</scala-maven-plugin.version>
++    <!-- don't upgrade scala-maven-plugin to version 4.7.2 or higher, see SPARK-45144 for details -->
++    <scala-maven-plugin.version>4.7.1</scala-maven-plugin.version>
+     <maven.scaladoc.skip>false</maven.scaladoc.skip>
+-    <versions-maven-plugin.version>2.16.0</versions-maven-plugin.version>
++    <versions-maven-plugin.version>2.16.2</versions-maven-plugin.version>
+     <!-- for now, not running scalafmt as part of default verify pipeline -->
+     <scalafmt.skip>true</scalafmt.skip>
+     <scalafmt.validateOnly>true</scalafmt.validateOnly>
+@@ -197,7 +197,7 @@
+     <!-- org.apache.commons/commons-lang3/-->
+     <commons-lang3.version>3.14.0</commons-lang3.version>
+     <!-- org.apache.commons/commons-pool2/-->
+-    <commons-pool2.version>2.11.1</commons-pool2.version>
++    <commons-pool2.version>2.12.0</commons-pool2.version>
+     <datanucleus-core.version>4.1.17</datanucleus-core.version>
+     <guava.version>14.0.1</guava.version>
+     <janino.version>3.1.9</janino.version>
+@@ -206,7 +206,7 @@
+       Because it transition Jakarta REST API from javax to jakarta package.
+     -->
+     <jersey.version>2.41</jersey.version>
+-    <joda.version>2.12.5</joda.version>
++    <joda.version>2.12.7</joda.version>
+     <jodd.version>3.5.2</jodd.version>
+     <jsr305.version>3.0.0</jsr305.version>
+     <libthrift.version>0.12.0</libthrift.version>
+@@ -219,15 +219,15 @@
+     <shuffle.endpoints.version>1.1.0</shuffle.endpoints.version>
+     <maven-antrun.version>3.1.0</maven-antrun.version>
+     <commons-crypto.version>1.1.0</commons-crypto.version>
+-    <commons-cli.version>1.5.0</commons-cli.version>
++    <commons-cli.version>1.6.0</commons-cli.version>
+     <bouncycastle.version>1.77</bouncycastle.version>
+     <tink.version>1.9.0</tink.version>
+-    <netty.version>4.1.100.Final</netty.version>
++    <netty.version>4.1.107.Final</netty.version>
+     <!--
+     If you are changing Arrow version specification, please check
+     ./python/pyspark/sql/pandas/utils.py, and ./python/setup.py too.
+     -->
+-    <arrow.version>14.0.2</arrow.version>
++    <arrow.version>15.0.0</arrow.version>
+     <ammonite.version>2.5.11</ammonite.version>
+ 
+     <!-- org.fusesource.leveldbjni will be used except on arm64 platform. -->
+@@ -291,7 +291,7 @@
+     <!-- Version used in Connect -->
+     <connect.guava.version>32.0.1-jre</connect.guava.version>
+     <guava.failureaccess.version>1.0.1</guava.failureaccess.version>
+-    <io.grpc.version>1.59.0</io.grpc.version>
++    <io.grpc.version>1.62.2</io.grpc.version>
+     <mima.version>1.1.3</mima.version>
+     <tomcat.annotations.api.version>6.0.53</tomcat.annotations.api.version>
+ 
+@@ -709,7 +709,7 @@
+       <dependency>
+         <groupId>org.rocksdb</groupId>
+         <artifactId>rocksdbjni</artifactId>
+-        <version>8.3.2</version>
++        <version>8.11.3</version>
+       </dependency>
+       <dependency>
+         <groupId>${leveldbjni.group}</groupId>
+@@ -856,7 +856,7 @@
+       <dependency>
+         <groupId>org.roaringbitmap</groupId>
+         <artifactId>RoaringBitmap</artifactId>
+-        <version>1.0.1</version>
++        <version>1.0.5</version>
+       </dependency>
+ 
+       <!-- Netty Begin -->
+@@ -2878,7 +2878,7 @@
+         <plugin>
+           <groupId>org.apache.maven.plugins</groupId>
+           <artifactId>maven-enforcer-plugin</artifactId>
+-          <version>3.3.0</version>
++          <version>3.4.1</version>
+           <executions>
+             <execution>
+               <id>enforce-versions</id>
+@@ -2895,6 +2895,10 @@
+                   </requireJavaVersion>
+                   <bannedDependencies>
+                     <excludes>
++                      <exclude>org.apache.hadoop:hadoop-common</exclude>
++                      <exclude>org.apache.hadoop:hadoop-hdfs-client</exclude>
++                      <exclude>org.apache.hadoop:hadoop-mapreduce-client-core</exclude>
++                      <exclude>org.apache.hadoop:hadoop-mapreduce-client-jobclient</exclude>
+                       <exclude>org.jboss.netty</exclude>
+                       <exclude>org.codehaus.groovy</exclude>
+                       <exclude>*:*_2.11</exclude>
+@@ -3053,7 +3057,7 @@
+         <plugin>
+           <groupId>org.apache.maven.plugins</groupId>
+           <artifactId>maven-compiler-plugin</artifactId>
+-          <version>3.11.0</version>
++          <version>3.12.1</version>
+           <configuration>
+             <source>${java.version}</source>
+             <target>${java.version}</target>
+@@ -3070,7 +3074,7 @@
+         <plugin>
+           <groupId>org.apache.maven.plugins</groupId>
+           <artifactId>maven-surefire-plugin</artifactId>
+-          <version>3.1.2</version>
++          <version>3.2.5</version>
+           <!-- Note config is repeated in scalatest config -->
+           <configuration>
+             <includes>
+@@ -3204,7 +3208,7 @@
+         <plugin>
+           <groupId>org.apache.maven.plugins</groupId>
+           <artifactId>maven-clean-plugin</artifactId>
+-          <version>3.3.1</version>
++          <version>3.3.2</version>
+           <configuration>
+             <filesets>
+               <fileset>
+@@ -3231,7 +3235,7 @@
+         <plugin>
+           <groupId>org.apache.maven.plugins</groupId>
+           <artifactId>maven-javadoc-plugin</artifactId>
+-          <version>3.5.0</version>
++          <version>3.6.3</version>
+           <configuration>
+             <additionalJOptions>
+               <additionalJOption>-Xdoclint:all</additionalJOption>
+@@ -3287,7 +3291,7 @@
+         <plugin>
+           <groupId>org.apache.maven.plugins</groupId>
+           <artifactId>maven-shade-plugin</artifactId>
+-          <version>3.5.0</version>
++          <version>3.5.1</version>
+           <dependencies>
+             <dependency>
+               <groupId>org.ow2.asm</groupId>
+@@ -3314,7 +3318,7 @@
+         <plugin>
+           <groupId>org.apache.maven.plugins</groupId>
+           <artifactId>maven-dependency-plugin</artifactId>
+-          <version>3.6.0</version>
++          <version>3.6.1</version>
+           <executions>
+             <execution>
+               <id>default-cli</id>
+@@ -3461,7 +3465,7 @@
+       <plugin>
+         <groupId>org.apache.maven.plugins</groupId>
+         <artifactId>maven-checkstyle-plugin</artifactId>
+-        <version>3.3.0</version>
++        <version>3.3.1</version>
+         <configuration>
+           <failOnViolation>false</failOnViolation>
+           <includeTestSourceDirectory>true</includeTestSourceDirectory>
+@@ -3763,7 +3767,7 @@
+                   <arg>-Wconf:cat=other-nullary-override:wv</arg>
+                   <arg>-Wconf:cat=other-match-analysis&amp;site=org.apache.spark.sql.catalyst.catalog.SessionCatalog.lookupFunction.catalogFunction:wv</arg>
+                   <arg>-Wconf:cat=other-pure-statement&amp;site=org.apache.spark.streaming.util.FileBasedWriteAheadLog.readAll.readFile:wv</arg>
+-                  <arg>-Wconf:cat=other-pure-statement&amp;site=org.apache.spark.scheduler.OutputCommitCoordinatorSuite.&lt;local OutputCommitCoordinatorSuite&gt;.futureAction:wv</arg>
++                  <arg>-Wconf:cat=other-pure-statement&amp;site=org.apache.spark.scheduler.OutputCommitCoordinatorSuite:wv</arg>
+                   <!--
+                     SPARK-33775 Suppress compilation warnings that contain the following contents.
+                     TODO(SPARK-33805): Undo the corresponding deprecated usage suppression rule after fixed.
+@@ -3796,6 +3800,17 @@
+                   -->
+                   <arg>-Wconf:cat=unused-imports&amp;src=org\/apache\/spark\/graphx\/impl\/VertexPartitionBase.scala:s</arg>
+                   <arg>-Wconf:cat=unused-imports&amp;src=org\/apache\/spark\/graphx\/impl\/VertexPartitionBaseOps.scala:s</arg>
++                  <!--
++                    SPARK-40497 Upgrade Scala to 2.13.11 and suppress `Implicit definition should have explicit type`
++                  -->
++                  <arg>-Wconf:msg=Implicit definition should have explicit type:s</arg>
++		  <!--
++		    SPARK-45331 Upgrade Scala to 2.13.12 and suppress "In Scala 2, symbols inherited
++		    from a superclass shadow symbols defined in an outer scope. Such references are
++		    ambiguous in Scala 3. To continue using the inherited symbol, write `this.stop`.
++		    Or use `-Wconf:msg=legacy-binding:s` to silence this warning. [quickfixable]"
++		  -->
++		  <arg>-Wconf:msg=legacy-binding:s</arg>
+                 </args>
+                 <compilerPlugins combine.self="override">
+                 </compilerPlugins>
+diff --git a/project/SparkBuild.scala b/project/SparkBuild.scala
+index 8e916cd7a6f..e9a8aed8eaa 100644
+--- a/project/SparkBuild.scala
++++ b/project/SparkBuild.scala
+@@ -89,9 +89,9 @@ object BuildCommons {
+ 
+   // Google Protobuf version used for generating the protobuf.
+   // SPARK-41247: needs to be consistent with `protobuf.version` in `pom.xml`.
+-  val protoVersion = "3.25.1"
++  val protoVersion = "3.25.3"
+   // GRPC version used for Spark Connect.
+-  val grpcVersion = "1.59.0"
++  val grpcVersion = "1.62.2"
+ }
+ 
+ object SparkBuild extends PomBuild {
+@@ -266,7 +266,7 @@ object SparkBuild extends PomBuild {
+           "-Wconf:cat=other-nullary-override:wv",
+           "-Wconf:cat=other-match-analysis&site=org.apache.spark.sql.catalyst.catalog.SessionCatalog.lookupFunction.catalogFunction:wv",
+           "-Wconf:cat=other-pure-statement&site=org.apache.spark.streaming.util.FileBasedWriteAheadLog.readAll.readFile:wv",
+-          "-Wconf:cat=other-pure-statement&site=org.apache.spark.scheduler.OutputCommitCoordinatorSuite.<local OutputCommitCoordinatorSuite>.futureAction:wv",
++          "-Wconf:cat=other-pure-statement&site=org.apache.spark.scheduler.OutputCommitCoordinatorSuite:wv",
+           "-Wconf:cat=other-pure-statement&site=org.apache.spark.sql.streaming.sources.StreamingDataSourceV2Suite.testPositiveCase.\\$anonfun:wv",
+           // SPARK-33775 Suppress compilation warnings that contain the following contents.
+           // TODO(SPARK-33805): Undo the corresponding deprecated usage suppression rule after
+@@ -291,7 +291,14 @@ object SparkBuild extends PomBuild {
+           // TODO(SPARK-43850): Remove the following suppression rules and remove `import scala.language.higherKinds`
+           // from the corresponding files when Scala 2.12 is no longer supported.
+           "-Wconf:cat=unused-imports&src=org\\/apache\\/spark\\/graphx\\/impl\\/VertexPartitionBase.scala:s",
+-          "-Wconf:cat=unused-imports&src=org\\/apache\\/spark\\/graphx\\/impl\\/VertexPartitionBaseOps.scala:s"
++          "-Wconf:cat=unused-imports&src=org\\/apache\\/spark\\/graphx\\/impl\\/VertexPartitionBaseOps.scala:s",
++          // SPARK-40497 Upgrade Scala to 2.13.11 and suppress `Implicit definition should have explicit type`
++          "-Wconf:msg=Implicit definition should have explicit type:s",
++          // SPARK-45331 Upgrade Scala to 2.13.12 and suppress "In Scala 2, symbols inherited
++          // from a superclass shadow symbols defined in an outer scope. Such references are
++          // ambiguous in Scala 3. To continue using the inherited symbol, write `this.stop`.
++          // Or use `-Wconf:msg=legacy-binding:s` to silence this warning. [quickfixable]"
++          "-Wconf:msg=legacy-binding:s"
+         )
+       }
+     }
+diff --git a/python/setup.py b/python/setup.py
+index 876dd21ce9d..6993e8b7eda 100755
+--- a/python/setup.py
++++ b/python/setup.py
+@@ -132,7 +132,7 @@ if in_spark:
+ # Also don't forget to update python/docs/source/getting_started/install.rst.
+ _minimum_pandas_version = "1.0.5"
+ _minimum_pyarrow_version = "4.0.0"
+-_minimum_grpc_version = "1.59.3"
++_minimum_grpc_version = "1.62.0"
+ _minimum_googleapis_common_protos_version = "1.56.4"
+ 
+ 
+diff --git a/sql/catalyst/pom.xml b/sql/catalyst/pom.xml
+index 4619c7e658b..5c066187338 100644
+--- a/sql/catalyst/pom.xml
++++ b/sql/catalyst/pom.xml
+@@ -114,7 +114,7 @@
+     <dependency>
+       <groupId>org.apache.datasketches</groupId>
+       <artifactId>datasketches-java</artifactId>
+-      <version>3.3.0</version>
++      <version>5.0.1</version>
+     </dependency>
+   </dependencies>
+   <build>
+diff --git a/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/aggregate/datasketchesAggregates.scala b/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/aggregate/datasketchesAggregates.scala
+index 17c69f798d8..ef1a9c70318 100644
+--- a/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/aggregate/datasketchesAggregates.scala
++++ b/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/aggregate/datasketchesAggregates.scala
+@@ -17,6 +17,7 @@
+ 
+ package org.apache.spark.sql.catalyst.expressions.aggregate
+ 
++import org.apache.datasketches.common.SketchesArgumentException
+ import org.apache.datasketches.hll.{HllSketch, TgtHllType, Union}
+ import org.apache.datasketches.memory.Memory
+ 
+@@ -315,7 +316,7 @@ case class HllUnionAgg(
+             union.update(sketch)
+             Some(union)
+           } catch {
+-            case _: java.lang.Error =>
++            case _: SketchesArgumentException | _: java.lang.Error =>
+               throw QueryExecutionErrors.hllInvalidInputSketchBuffer(prettyName)
+           }
+         case _ =>
+diff --git a/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/datasketchesExpressions.scala b/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/datasketchesExpressions.scala
+index 9e3fe52f534..fa917dfc5c8 100644
+--- a/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/datasketchesExpressions.scala
++++ b/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/datasketchesExpressions.scala
+@@ -17,6 +17,7 @@
+ 
+ package org.apache.spark.sql.catalyst.expressions
+ 
++import org.apache.datasketches.common.SketchesArgumentException
+ import org.apache.datasketches.hll.{HllSketch, TgtHllType, Union}
+ import org.apache.datasketches.memory.Memory
+ 
+@@ -55,7 +56,7 @@ case class HllSketchEstimate(child: Expression)
+     try {
+       Math.round(HllSketch.heapify(Memory.wrap(buffer)).getEstimate)
+     } catch {
+-      case _: java.lang.Error =>
++      case _: SketchesArgumentException | _: java.lang.Error =>
+         throw QueryExecutionErrors.hllInvalidInputSketchBuffer(prettyName)
+     }
+   }
+@@ -107,13 +108,13 @@ case class HllUnion(first: Expression, second: Expression, third: Expression)
+     val sketch1 = try {
+       HllSketch.heapify(Memory.wrap(value1.asInstanceOf[Array[Byte]]))
+     } catch {
+-      case _: java.lang.Error =>
++      case _: SketchesArgumentException | _: java.lang.Error =>
+         throw QueryExecutionErrors.hllInvalidInputSketchBuffer(prettyName)
+     }
+     val sketch2 = try {
+       HllSketch.heapify(Memory.wrap(value2.asInstanceOf[Array[Byte]]))
+     } catch {
+-      case _: java.lang.Error =>
++      case _: SketchesArgumentException | _: java.lang.Error =>
+         throw QueryExecutionErrors.hllInvalidInputSketchBuffer(prettyName)
+     }
+     val allowDifferentLgConfigK = value3.asInstanceOf[Boolean]

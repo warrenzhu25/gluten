@@ -21,7 +21,6 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.serializer.SerializerManager
 import org.apache.spark.shuffle._
 import org.apache.spark.shuffle.api.ShuffleExecutorComponents
-import org.apache.spark.shuffle.sort.SortShuffleManager.canUseBatchFetch
 import org.apache.spark.storage.BlockId
 import org.apache.spark.util.collection.OpenHashSet
 
@@ -83,7 +82,7 @@ class ColumnarShuffleManager(conf: SparkConf) extends ShuffleManager with Loggin
     val env = SparkEnv.get
     handle match {
       case columnarShuffleHandle: ColumnarShuffleHandle[K @unchecked, V @unchecked] =>
-        GlutenShuffleWriterWrapper.genColumnarShuffleWriter(
+        GlutenShuffleUtils.genColumnarShuffleWriter(
           shuffleBlockResolver,
           columnarShuffleHandle,
           mapId,
@@ -128,34 +127,14 @@ class ColumnarShuffleManager(conf: SparkConf) extends ShuffleManager with Loggin
       endPartition: Int,
       context: TaskContext,
       metrics: ShuffleReadMetricsReporter): ShuffleReader[K, C] = {
-    val (blocksByAddress, canEnableBatchFetch) = {
-      GlutenShuffleUtils.getReaderParam(
-        handle,
-        startMapIndex,
-        endMapIndex,
-        startPartition,
-        endPartition)
-    }
-    val shouldBatchFetch =
-      canEnableBatchFetch && canUseBatchFetch(startPartition, endPartition, context)
-    if (handle.isInstanceOf[ColumnarShuffleHandle[_, _]]) {
-      new BlockStoreShuffleReader(
-        handle.asInstanceOf[BaseShuffleHandle[K, _, C]],
-        blocksByAddress,
-        context,
-        metrics,
-        serializerManager = bypassDecompressionSerializerManger,
-        shouldBatchFetch = shouldBatchFetch
-      )
-    } else {
-      new BlockStoreShuffleReader(
-        handle.asInstanceOf[BaseShuffleHandle[K, _, C]],
-        blocksByAddress,
-        context,
-        metrics,
-        shouldBatchFetch = shouldBatchFetch
-      )
-    }
+    GlutenShuffleUtils.genColumnarShuffleReader(
+      handle,
+      startMapIndex,
+      endMapIndex,
+      startPartition,
+      endPartition,
+      context,
+      metrics)
   }
 
   /** Remove a shuffle's metadata from the ShuffleManager. */

@@ -19,7 +19,14 @@ build_jars "${OS_VERSION}" "${JAVA_VERSION}" "${SPARK_VERSION}" "${SCALA_VERSION
 TODAY=$(date +%Y%m%d-%H%M)
 VERSION="1.4.0-${TODAY}"
 DESCRIPTION="Gluten 1.4 with Spark ${SPARK_VERSION} jars for ${IMAGE_TYPE}-${IMAGE_VERSION}"
-VELOX_BUNDLE_JAR="gluten-velox-bundle-spark${SPARK_VERSION}_${SCALA_VERSION}-linux_amd64-1.4.0.jar"
+
+# Find the Velox bundle JAR dynamically
+VELOX_BUNDLE_JAR_PATH=$(find "${GLUTEN_DIR}"/package/target -name "gluten-velox-bundle-spark*_${SCALA_VERSION}-linux_amd64-1.4.0.jar")
+if [ -z "${VELOX_BUNDLE_JAR_PATH}" ]; then
+  echo "Error: gluten-velox-bundle jar not found in ${GLUTEN_DIR}/package/target"
+  exit 1
+fi
+VELOX_BUNDLE_JAR=$(basename "${VELOX_BUNDLE_JAR_PATH}")
 
 # Upload to Dataproc Artifact Registry
 if [ "$PUBLISH_JARS_TO_AR" == "yes" ]; then

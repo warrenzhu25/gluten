@@ -23,7 +23,7 @@ function build_for_spark {
   scala_version=$2
   java_version=$3
   velox_home="${4:-}"
-  mvn clean package -Pbackends-velox -Pbigquery -Pdelta -Pspark-$spark_version -Pscala-$scala_version -Pjava-$java_version ${velox_home:+-Dbackend.home=$velox_home} -DskipTests
+  mvn clean package -Pbackends-velox -Pbigquery -Pdelta -Piceberg -Pspark-$spark_version -Pscala-$scala_version -Pjava-$java_version ${velox_home:+-Dbackend.home=$velox_home} -DskipTests
 }
 
 function check_supported {

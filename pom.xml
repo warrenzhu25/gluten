@@ -462,6 +462,16 @@
     </profile>
 
     <profile>
+      <id>memory-monitor</id>
+      <activation>
+        <activeByDefault>false</activeByDefault>
+      </activation>
+      <modules>
+        <module>tools/memory-monitor</module>
+      </modules>
+    </profile>
+
+    <profile>
       <id>backends-clickhouse</id>
       <activation>
         <activeByDefault>false</activeByDefault>

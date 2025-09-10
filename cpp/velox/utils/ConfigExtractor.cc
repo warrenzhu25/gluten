@@ -23,6 +23,7 @@
 #include "utils/Exception.h"
 #include "velox/connectors/hive/HiveConfig.h"
 #include "velox/connectors/hive/storage_adapters/s3fs/S3Config.h"
+#include <boost/algorithm/string/predicate.hpp>
 
 namespace {
 
@@ -147,6 +148,8 @@ std::shared_ptr<facebook::velox::config::ConfigBase> getHiveConfig(
 #endif
 
 #ifdef ENABLE_GCS
+  std::string_view kSparkHadoopPrefix = "spark.hadoop.";
+  std::string_view kSparkHadoopGsHttpHeaderPrefix = "spark.hadoop.fs.gs.storage.http.headers.";
   // https://github.com/GoogleCloudDataproc/hadoop-connectors/blob/master/gcs/CONFIGURATION.md#api-client-configuration
   auto gsStorageRootUrl = conf->get<std::string>("spark.hadoop.fs.gs.storage.root.url");
   if (gsStorageRootUrl.hasValue()) {
@@ -199,6 +202,13 @@ std::shared_ptr<facebook::velox::config::ConfigBase> getHiveConfig(
                         "however conf spark.hadoop.fs.gs.auth.service.account.json.keyfile is not set";
         throw GlutenException("Conf spark.hadoop.fs.gs.auth.service.account.json.keyfile is not set");
       }
+    }
+  }
+
+  for (const auto& [key, value] : conf->rawConfigs()) {
+    if ((key.length() > kSparkHadoopGsHttpHeaderPrefix.length()) &&
+    boost::starts_with(key, kSparkHadoopGsHttpHeaderPrefix)) {
+      hiveConfMap[key.substr(kSparkHadoopPrefix.size())] = value;
     }
   }
 #endif

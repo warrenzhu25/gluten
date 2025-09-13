@@ -17,6 +17,7 @@
 package org.apache.gluten.execution
 
 import org.apache.gluten.backendsapi.BackendsApiManager
+import org.apache.gluten.execution.FileSourceScanExecTransformerBase.DISABLE_OPTIMIZED_SPLIT_TAG
 import org.apache.gluten.expression.ExpressionConverter
 import org.apache.gluten.extension.ValidationResult
 import org.apache.gluten.metrics.MetricsUpdater
@@ -27,6 +28,7 @@ import org.apache.gluten.utils.{ANY, AnyExcept, BlockListedConfiguration, BlockL
 import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference, Expression, PlanExpression}
 import org.apache.spark.sql.catalyst.plans.QueryPlan
+import org.apache.spark.sql.catalyst.trees.TreeNodeTag
 import org.apache.spark.sql.catalyst.util.truncatedString
 import org.apache.spark.sql.connector.read.InputPartition
 import org.apache.spark.sql.execution.FileSourceScanExecShim
@@ -129,6 +131,15 @@ abstract class FileSourceScanExecTransformerBase(
 
   override def outputAttributes(): Seq[Attribute] = output
 
+  lazy val shouldOptimizeSplit: Boolean = {
+    val forceDisableOptimizeSplit = this.getTagValue(DISABLE_OPTIMIZED_SPLIT_TAG)
+    if (forceDisableOptimizeSplit.isDefined && forceDisableOptimizeSplit.get) {
+      false
+    } else {
+      conf.optimizedSplitEnabled
+    }
+  }
+
   override def getPartitions: Seq[InputPartition] = {
     BackendsApiManager.getTransformerApiInstance.genInputPartitionSeq(
       relation,
@@ -139,7 +150,8 @@ abstract class FileSourceScanExecTransformerBase(
       optionalBucketSet,
       optionalNumCoalescedBuckets,
       disableBucketedScan,
-      filterExprs()
+      filterExprs(),
+      shouldOptimizeSplit
     )
   }
 
@@ -223,4 +235,6 @@ abstract class FileSourceScanExecTransformerBase(
 object FileSourceScanExecTransformerBase {
   private def isDynamicPruningFilter(e: Expression): Boolean =
     e.find(_.isInstanceOf[PlanExpression[_]]).isDefined
+
+  private val DISABLE_OPTIMIZED_SPLIT_TAG = TreeNodeTag[Boolean]("DISABLE_OPTIMIZED_SPLIT")
 }

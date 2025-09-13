@@ -42,7 +42,8 @@ trait TransformerApi {
       optionalBucketSet: Option[BitSet],
       optionalNumCoalescedBuckets: Option[Int],
       disableBucketedScan: Boolean,
-      filterExprs: Seq[Expression] = Seq.empty): Seq[InputPartition]
+      filterExprs: Seq[Expression] = Seq.empty,
+      shouldOptimizeSplit: Boolean = false): Seq[InputPartition]
 
   /**
    * Post-process native config, For example, for ClickHouse backend, sync 'spark.executor.cores' to

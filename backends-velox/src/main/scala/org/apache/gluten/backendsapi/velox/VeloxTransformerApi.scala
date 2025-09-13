@@ -53,7 +53,8 @@ class VeloxTransformerApi extends TransformerApi with Logging {
       optionalBucketSet: Option[BitSet],
       optionalNumCoalescedBuckets: Option[Int],
       disableBucketedScan: Boolean,
-      filterExprs: Seq[Expression] = Seq.empty): Seq[InputPartition] = {
+      filterExprs: Seq[Expression] = Seq.empty,
+      shouldOptimizeSplit: Boolean = false): Seq[InputPartition] = {
     InputPartitionsUtil(
       relation,
       requiredSchema,
@@ -62,7 +63,8 @@ class VeloxTransformerApi extends TransformerApi with Logging {
       bucketedScan,
       optionalBucketSet,
       optionalNumCoalescedBuckets,
-      disableBucketedScan)
+      disableBucketedScan,
+      shouldOptimizeSplit)
       .genInputPartitionSeq()
   }
 

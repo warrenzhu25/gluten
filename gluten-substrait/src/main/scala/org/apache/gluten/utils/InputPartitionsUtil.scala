@@ -21,7 +21,9 @@ import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.expressions.Attribute
 import org.apache.spark.sql.connector.read.InputPartition
+import org.apache.spark.sql.execution.DataSourceScanExecUtil
 import org.apache.spark.sql.execution.datasources.{FilePartition, HadoopFsRelation, PartitionDirectory}
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.util.collection.BitSet
 
@@ -33,8 +35,18 @@ case class InputPartitionsUtil(
     bucketedScan: Boolean,
     optionalBucketSet: Option[BitSet],
     optionalNumCoalescedBuckets: Option[Int],
-    disableBucketedScan: Boolean)
+    disableBucketedScan: Boolean,
+    shouldOptimizeSplit: Boolean = false)
   extends Logging {
+
+  // TODO: Update this method once we support variable length columns in Spark
+  val colPruningReductionFactor = DataSourceScanExecUtil.calculateColPruningReductionFactor(
+    shouldOptimizeSplit,
+    relation.fileFormat,
+    requiredSchema,
+    relation.dataSchema,
+    relation.sparkSession.sessionState.conf.getConf(SQLConf.PARQUET_COMPRESSION_FACTOR)
+  )
 
   def genInputPartitionSeq(): Seq[InputPartition] = {
     if (bucketedScan) {
@@ -47,10 +59,14 @@ case class InputPartitionsUtil(
   private def genNonBuckedInputPartitionSeq(): Seq[InputPartition] = {
     val openCostInBytes = relation.sparkSession.sessionState.conf.filesOpenCostInBytes
     val maxSplitBytes =
-      FilePartition.maxSplitBytes(relation.sparkSession, selectedPartitions)
+      FilePartition.maxSplitBytes(
+        relation.sparkSession,
+        selectedPartitions,
+        colPruningReductionFactor)
     logInfo(
       s"Planning scan with bin packing, max size: $maxSplitBytes bytes, " +
-        s"open cost is considered as scanning $openCostInBytes bytes.")
+        s"open cost is considered as scanning $openCostInBytes bytes." +
+        s" Pruning Factor: $colPruningReductionFactor.")
 
     val splitFiles = selectedPartitions
       .flatMap {

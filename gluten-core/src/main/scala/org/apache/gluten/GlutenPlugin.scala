@@ -201,7 +201,11 @@ private[gluten] class GlutenDriverPlugin extends DriverPlugin with Logging {
 
     // Get the off-heap size set by user.
     val offHeapSize =
-      if (conf.getBoolean(DYNAMIC_OFFHEAP_SIZING_ENABLED.key, false)) {
+      if (
+        conf.getBoolean(
+          DYNAMIC_OFFHEAP_SIZING_ENABLED.key,
+          DYNAMIC_OFFHEAP_SIZING_ENABLED.defaultValue.get)
+      ) {
         val onHeapSize: Long =
           if (conf.contains(SPARK_ONHEAP_SIZE_KEY)) {
             conf.getSizeAsBytes(SPARK_ONHEAP_SIZE_KEY)
@@ -210,7 +214,9 @@ private[gluten] class GlutenDriverPlugin extends DriverPlugin with Logging {
             1024 * 1024 * 1024
           }
         ((onHeapSize - (300 * 1024 * 1024)) *
-          conf.getDouble(DYNAMIC_OFFHEAP_SIZING_MEMORY_FRACTION.key, 0.6d)).toLong
+          conf.getDouble(
+            DYNAMIC_OFFHEAP_SIZING_MEMORY_FRACTION.key,
+            DYNAMIC_OFFHEAP_SIZING_MEMORY_FRACTION.defaultValue.get)).toLong
       } else {
         conf.getSizeAsBytes(SPARK_OFFHEAP_SIZE_KEY)
       }

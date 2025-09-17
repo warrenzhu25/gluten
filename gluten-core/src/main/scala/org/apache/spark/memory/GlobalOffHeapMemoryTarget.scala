@@ -21,6 +21,7 @@ import org.apache.gluten.exception.GlutenException
 import org.apache.gluten.memory.{MemoryUsageRecorder, SimpleMemoryUsageRecorder}
 import org.apache.gluten.memory.memtarget.{KnownNameAndStats, MemoryTarget, MemoryTargetUtil, MemoryTargetVisitor}
 import org.apache.gluten.proto.MemoryUsageStats
+import org.apache.gluten.utils.ConfigUtil
 
 import org.apache.spark.{SparkEnv, TaskContext}
 import org.apache.spark.internal.Logging
@@ -36,8 +37,11 @@ class GlobalOffHeapMemoryTarget private[memory]
   private val targetName = MemoryTargetUtil.toUniqueName("GlobalOffHeap")
   private val recorder: MemoryUsageRecorder = new SimpleMemoryUsageRecorder()
   private val mode: MemoryMode =
-    if (GlutenConfig.get.dynamicOffHeapSizingEnabled) MemoryMode.ON_HEAP
-    else MemoryMode.OFF_HEAP
+    if (ConfigUtil.getConfig(GlutenConfig.DYNAMIC_OFFHEAP_SIZING_ENABLED).toBoolean) {
+      MemoryMode.ON_HEAP
+    } else {
+      MemoryMode.OFF_HEAP
+    }
 
   private val FIELD_MEMORY_MANAGER: Field = {
     val f =

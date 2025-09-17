@@ -17,6 +17,7 @@
 package org.apache.gluten.memory.memtarget;
 
 import org.apache.gluten.config.GlutenConfig;
+import org.apache.gluten.utils.ConfigUtil;
 
 import org.apache.spark.annotation.Experimental;
 import org.apache.spark.util.SparkThreadPoolUtil;
@@ -206,15 +207,25 @@ public class DynamicOffHeapSizingMemoryTarget implements MemoryTarget {
       LOG.error("Dynamic off-heap sizing is not supported before JDK 9.");
     }
 
-    GlutenConfig conf = GlutenConfig.get();
-
-    ASYNC_TOTAL_MEMORY_THRESHOLD_RATIO = conf.dynamicOffHeapSizingAsyncTotalMemoryThresholdRatio();
+    ASYNC_TOTAL_MEMORY_THRESHOLD_RATIO =
+        Double.parseDouble(
+            ConfigUtil.getConfig(
+                GlutenConfig.DYNAMIC_OFFHEAP_SIZING_ASYNC_TOTAL_MEMORY_THRESHOLD_RATIO()));
     ASYNC_ON_HEAP_MEMORY_THRESHOLD_RATIO =
-        conf.dynamicOffHeapSizingAsyncOnHeapMemoryThresholdRatio();
-    GC_MAX_HEAP_FREE_RATIO = conf.dynamicOffHeapSizingGCHeapFreeRatio();
-    MAX_GC_RETRY = conf.dynamicOffHeapSizingMaxGCRetry();
-    INITIAL_GC_RETRY_WAIT_TIME = conf.dynamicOffHeapSizingInitialGCWaitTime();
-    GC_MAX_WAIT_TIME = conf.dynamicOffHeapSizingGCMaxWaitTime();
+        Double.parseDouble(
+            ConfigUtil.getConfig(
+                GlutenConfig.DYNAMIC_OFFHEAP_SIZING_ASYNC_ON_HEAP_MEMORY_THRESHOLD_RATIO()));
+    GC_MAX_HEAP_FREE_RATIO =
+        Double.parseDouble(
+            ConfigUtil.getConfig(GlutenConfig.DYNAMIC_OFFHEAP_SIZING_GC_HEAP_FREE_RATIO()));
+    MAX_GC_RETRY =
+        Integer.parseInt(ConfigUtil.getConfig(GlutenConfig.DYNAMIC_OFFHEAP_SIZING_MAX_GC_RETRY()));
+    INITIAL_GC_RETRY_WAIT_TIME =
+        Integer.parseInt(
+            ConfigUtil.getConfig(GlutenConfig.DYNAMIC_OFFHEAP_SIZING_INITIAL_GC_RETRY_WAIT_TIME()));
+    GC_MAX_WAIT_TIME =
+        Integer.parseInt(
+            ConfigUtil.getConfig(GlutenConfig.DYNAMIC_OFFHEAP_SIZING_GC_MAX_WAIT_TIME()));
 
     LOG.info(
         "Initialized DynamicOffHeapSizingMemoryTarget with TOTAL_MEMORY_SHARED = {}",

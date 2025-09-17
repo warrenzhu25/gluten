@@ -17,9 +17,10 @@
 package org.apache.gluten.memory.memtarget;
 
 import org.apache.gluten.config.GlutenConfig$;
+import org.apache.gluten.utils.ConfigUtil;
 
+import org.apache.spark.SparkEnv;
 import org.apache.spark.memory.SparkMemoryUtil;
-import org.apache.spark.sql.internal.SQLConf;
 import org.apache.spark.task.TaskResources;
 import org.apache.spark.util.Utils;
 
@@ -51,10 +52,7 @@ public class ThrowOnOomMemoryTarget implements MemoryTarget {
     StringBuilder errorBuilder = new StringBuilder();
     boolean dynamicSizingEnabled =
         Boolean.parseBoolean(
-            SQLConf.get()
-                .getConfString(
-                    GlutenConfig$.MODULE$.DYNAMIC_OFFHEAP_SIZING_ENABLED().key(),
-                    GlutenConfig$.MODULE$.DYNAMIC_OFFHEAP_SIZING_ENABLED().defaultValueString()));
+            ConfigUtil.getConfig(GlutenConfig$.MODULE$.DYNAMIC_OFFHEAP_SIZING_ENABLED()));
 
     if (dynamicSizingEnabled) {
       errorBuilder
@@ -67,10 +65,7 @@ public class ThrowOnOomMemoryTarget implements MemoryTarget {
           .append(System.lineSeparator())
           .append(
               String.format(
-                  "\t%s=%s",
-                  GlutenConfig$.MODULE$.DYNAMIC_OFFHEAP_SIZING_ENABLED().key(),
-                  SQLConf.get()
-                      .getConfString(GlutenConfig$.MODULE$.DYNAMIC_OFFHEAP_SIZING_ENABLED().key())))
+                  "\t%s=true", GlutenConfig$.MODULE$.DYNAMIC_OFFHEAP_SIZING_ENABLED().key()))
           .append(System.lineSeparator());
     } else {
       errorBuilder
@@ -85,7 +80,9 @@ public class ThrowOnOomMemoryTarget implements MemoryTarget {
               String.format(
                   "\t%s=%s",
                   GlutenConfig$.MODULE$.SPARK_OFFHEAP_ENABLED(),
-                  SQLConf.get().getConfString(GlutenConfig$.MODULE$.SPARK_OFFHEAP_ENABLED())));
+                  SparkEnv.get()
+                      .conf()
+                      .get(GlutenConfig$.MODULE$.SPARK_OFFHEAP_ENABLED(), "false")));
     }
 
     errorBuilder
@@ -97,29 +94,24 @@ public class ThrowOnOomMemoryTarget implements MemoryTarget {
                 "\t%s=%s",
                 GlutenConfig$.MODULE$.COLUMNAR_OFFHEAP_SIZE_IN_BYTES().key(),
                 reformatBytes(
-                    SQLConf.get()
-                        .getConfString(
-                            GlutenConfig$.MODULE$.COLUMNAR_OFFHEAP_SIZE_IN_BYTES().key()))))
+                    ConfigUtil.getConfig(GlutenConfig$.MODULE$.COLUMNAR_OFFHEAP_SIZE_IN_BYTES()))))
         .append(System.lineSeparator())
         .append(
             String.format(
                 "\t%s=%s",
                 GlutenConfig$.MODULE$.COLUMNAR_TASK_OFFHEAP_SIZE_IN_BYTES().key(),
                 reformatBytes(
-                    SQLConf.get()
-                        .getConfString(
-                            GlutenConfig$.MODULE$.COLUMNAR_TASK_OFFHEAP_SIZE_IN_BYTES().key()))))
+                    ConfigUtil.getConfig(
+                        GlutenConfig$.MODULE$.COLUMNAR_TASK_OFFHEAP_SIZE_IN_BYTES()))))
         .append(System.lineSeparator())
         .append(
             String.format(
                 "\t%s=%s",
                 GlutenConfig$.MODULE$.COLUMNAR_CONSERVATIVE_TASK_OFFHEAP_SIZE_IN_BYTES().key(),
                 reformatBytes(
-                    SQLConf.get()
-                        .getConfString(
-                            GlutenConfig$.MODULE$
-                                .COLUMNAR_CONSERVATIVE_TASK_OFFHEAP_SIZE_IN_BYTES()
-                                .key()))));
+                    ConfigUtil.getConfig(
+                        GlutenConfig$.MODULE$
+                            .COLUMNAR_CONSERVATIVE_TASK_OFFHEAP_SIZE_IN_BYTES()))));
 
     // Dump all consumer usages to exception body
     errorBuilder.append(SparkMemoryUtil.dumpMemoryTargetStats(target));

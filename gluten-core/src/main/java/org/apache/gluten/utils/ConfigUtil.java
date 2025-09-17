@@ -16,7 +16,10 @@
  */
 package org.apache.gluten.utils;
 
+import org.apache.gluten.config.ConfigEntry;
 import org.apache.gluten.proto.ConfigMap;
+
+import org.apache.spark.SparkEnv;
 
 import java.util.Map;
 
@@ -26,5 +29,14 @@ public class ConfigUtil {
     ConfigMap.Builder builder = ConfigMap.newBuilder();
     builder.putAllConfigs(conf);
     return builder.build().toByteArray();
+  }
+
+  public static <T> String getConfig(ConfigEntry<T> configEntry) {
+    SparkEnv env = SparkEnv.get();
+    if (env != null) {
+      return env.conf().get(configEntry.key(), configEntry.defaultValueString());
+    } else {
+      return configEntry.defaultValueString();
+    }
   }
 }

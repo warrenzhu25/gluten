@@ -17,8 +17,10 @@
 package org.apache.gluten.memory.memtarget;
 
 import org.apache.gluten.config.GlutenConfig;
+import org.apache.gluten.config.GlutenConfig$;
 import org.apache.gluten.memory.MemoryUsageStatsBuilder;
 import org.apache.gluten.memory.memtarget.spark.TreeMemoryConsumers;
+import org.apache.gluten.utils.ConfigUtil;
 
 import org.apache.spark.SparkEnv;
 import org.apache.spark.annotation.Experimental;
@@ -50,7 +52,8 @@ public final class MemoryTargets {
 
   @Experimental
   public static MemoryTarget dynamicOffHeapSizingIfEnabled(MemoryTarget memoryTarget) {
-    if (GlutenConfig.get().dynamicOffHeapSizingEnabled()) {
+    if (Boolean.parseBoolean(
+        ConfigUtil.getConfig(GlutenConfig$.MODULE$.DYNAMIC_OFFHEAP_SIZING_ENABLED()))) {
       return new DynamicOffHeapSizingMemoryTarget(memoryTarget);
     }
 

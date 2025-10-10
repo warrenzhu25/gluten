@@ -67,7 +67,7 @@ case class DeltaScanTransformer(
   override protected def blockListedConfigurations: Seq[BlockListedConfiguration] = {
     super.blockListedConfigurations ++ Seq(
       BlockListedSparkConfiguration(
-        "spark.databricks.delta.merge.enableLowShuffleMerge",
+        "spark.dataproc.delta.merge.enableLowShuffleMerge",
         AnyExcept("false")
       ))
   }

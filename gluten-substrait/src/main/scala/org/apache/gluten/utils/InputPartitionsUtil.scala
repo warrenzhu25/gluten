@@ -19,6 +19,7 @@ package org.apache.gluten.utils
 import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.internal.Logging
+import org.apache.spark.launcher.SparkLauncher
 import org.apache.spark.sql.catalyst.expressions.Attribute
 import org.apache.spark.sql.connector.read.InputPartition
 import org.apache.spark.sql.execution.DataSourceScanExecUtil
@@ -39,13 +40,17 @@ case class InputPartitionsUtil(
     shouldOptimizeSplit: Boolean = false)
   extends Logging {
 
-  // TODO: Update this method once we support variable length columns in Spark
   val colPruningReductionFactor = DataSourceScanExecUtil.calculateColPruningReductionFactor(
     shouldOptimizeSplit,
+    true,
+    relation.sparkSession.sparkContext.statusTracker.getExecutorInfos.length
+      * relation.sparkSession.conf.get(SparkLauncher.EXECUTOR_CORES, "1").toInt,
     relation.fileFormat,
     requiredSchema,
     relation.dataSchema,
-    relation.sparkSession.sessionState.conf.getConf(SQLConf.PARQUET_COMPRESSION_FACTOR)
+    relation.sparkSession.sessionState.conf.getConf(SQLConf.PARQUET_COMPRESSION_FACTOR),
+    relation.sparkSession.sessionState.conf.getConf(SQLConf.PARQUET_SPLIT_ESTIMATE_SAMPLE_SIZE),
+    selectedPartitions
   )
 
   def genInputPartitionSeq(): Seq[InputPartition] = {

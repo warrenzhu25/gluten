@@ -953,6 +953,15 @@ abstract class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
+  test("Test monotonically_increasing_id() function") {
+    runQueryAndCompare(
+      """SELECT monotonically_increasing_id() from lineitem limit 100""".stripMargin,
+      false
+    ) {
+      checkGlutenOperatorMatch[ProjectExecTransformer]
+    }
+  }
+
   test("Test rand function") {
     runQueryAndCompare("""SELECT rand() from lineitem limit 100""".stripMargin, false) {
       checkGlutenOperatorMatch[ProjectExecTransformer]

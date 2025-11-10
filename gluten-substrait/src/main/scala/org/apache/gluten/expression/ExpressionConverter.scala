@@ -760,6 +760,8 @@ object ExpressionConverter extends SQLConfHelper with Logging {
           substraitExprName,
           expr.children.map(replaceWithExpressionTransformer0(_, attributeSeq, expressionsMap)),
           j)
+      case i: MonotonicallyIncreasingID =>
+        GenericExpressionTransformer(substraitExprName, Seq(), i)
       case expr =>
         GenericExpressionTransformer(
           substraitExprName,

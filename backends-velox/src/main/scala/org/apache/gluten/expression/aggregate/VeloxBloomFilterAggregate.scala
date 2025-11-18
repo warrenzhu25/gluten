@@ -118,6 +118,9 @@ case class VeloxBloomFilterAggregate(
   }
 
   override def deserialize(bytes: Array[Byte]): BloomFilter = {
+    if (bytes == null) {
+      return VeloxBloomFilter.empty(0)
+    }
     VeloxBloomFilter.readFrom(bytes)
   }
 

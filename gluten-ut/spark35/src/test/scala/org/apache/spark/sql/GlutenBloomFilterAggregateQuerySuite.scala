@@ -18,10 +18,11 @@ package org.apache.spark.sql
 
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.config.GlutenConfig
-import org.apache.gluten.execution.HashAggregateExecBaseTransformer
+import org.apache.gluten.execution.{FlushableHashAggregateExecTransformer, HashAggregateExecBaseTransformer}
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
+import org.apache.spark.sql.execution.aggregate.ObjectHashAggregateExec
 import org.apache.spark.sql.internal.SQLConf
 
 class GlutenBloomFilterAggregateQuerySuite
@@ -65,6 +66,41 @@ class GlutenBloomFilterAggregateQuerySuite
       spark.sql("""SELECT might_contain((select bloom_filter_agg(cast(id as long))
                   | from range(1, 1)), null)""".stripMargin),
       Row(null))
+  }
+
+  testGluten("Test bloom_filter_agg merge with empty partition") {
+    spark
+      .range(100)
+      .selectExpr("id as c1")
+      .write
+      .format("parquet")
+      .saveAsTable("tmp1")
+
+    val table = "tmp1"
+    val numEstimatedItems = 5000000L
+    val sqlString = s"""
+                       |SELECT c1
+                       |FROM $table
+                       |WHERE might_contain(
+                       |            (SELECT bloom_filter_agg(c1,
+                       |              cast($numEstimatedItems as long),
+                       |              cast($veloxBloomFilterMaxNumBits as long))
+                       |             FROM $table where c1 < 0), c1)
+                      """.stripMargin
+
+    withSQLConf(
+      GlutenConfig.PESSIMISTIC_FALLBACK.key -> "true",
+      "spark.shuffle.manager" -> "sort"
+    ) {
+      val df = spark.sql(sqlString)
+      df.collect
+      assert(collectWithSubqueries(df.queryExecution.executedPlan) {
+        case o: ObjectHashAggregateExec => o
+      }.size == 2)
+      assert(collectWithSubqueries(df.queryExecution.executedPlan) {
+        case o: FlushableHashAggregateExecTransformer => o
+      }.size == 2)
+    }
   }
 
   testGluten("Test bloom_filter_agg filter fallback") {

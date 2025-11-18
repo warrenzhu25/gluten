@@ -170,7 +170,8 @@ public class GlutenArrowColumnBatchPartitionReaderContext
       Optional<StructType> userProvidedSchema,
       int numBackgroundThreads,
       ResponseCompressionCodec responseCompressionCodec) {
-    this.allocator = ArrowBufferAllocators.contextInstance();
+    this.allocator = ArrowBufferAllocators.contextInstance()
+      .newChildAllocator(this.getClass().getSimpleName(), 0, maxAllocation);
     this.readRowsHelper = readRowsHelper;
     this.tracer = tracer;
     closeables.add(null);
@@ -270,6 +271,23 @@ public class GlutenArrowColumnBatchPartitionReaderContext
 
   public void close() throws IOException {
     closed = true;
+    if (currentBatch != null) {
+      currentBatch.close();
+    }
+    try {
+      tracer.finished();
+      closeables.set(0, reader);
+      AutoCloseables.close(closeables);
+      allocator.close();
+    } catch (Exception e) {
+      throw new IOException("Failure closing arrow components. stream: " + readRowsHelper, e);
+    } finally {
+      try {
+        readRowsHelper.close();
+      } catch (Exception e) {
+        throw new IOException("Failure closing stream: " + readRowsHelper, e);
+      }
+    }
   }
 
   private ArrowStreamReader newArrowStreamReader(InputStream fullStream) {

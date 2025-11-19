@@ -1,13 +1,13 @@
 ---
 layout: page
-title: Adding Operators to Gluten
+title: Gluten Developer Guide
 nav_order: 3
 parent: Developer Overview
 ---
 
-# Guide for Adding Operator Support to Gluten
+# Comprehensive Gluten Development Guide
 
-This comprehensive guide walks you through the complete process of adding a new operator to Apache Gluten, from initial research to PR submission. It includes multiple end-to-end examples progressing from simple to complex implementations.
+This comprehensive guide covers Apache Gluten development: adding operators, expressions, debugging performance, and more. From initial research to PR submission, with concrete examples, code templates, and troubleshooting solutions.
 
 ## Table of Contents
 - [1. Introduction](#1-introduction)
@@ -22,6 +22,7 @@ This comprehensive guide walks you through the complete process of adding a new 
 - [10. Build and Troubleshooting](#10-build-and-troubleshooting)
 - [11. PR Submission Checklist](#11-pr-submission-checklist)
 - [12. Quick Reference](#12-quick-reference)
+- [13. Beyond Operators: Other Development Tasks](#13-beyond-operators-other-development-tasks)
 
 ---
 
@@ -3529,34 +3530,219 @@ class MyOperatorSuite extends VeloxWholeStageTransformerSuite {
 
 ---
 
+## 13. Beyond Operators: Other Development Tasks
+
+While this guide focuses on adding operators, Gluten development involves many other tasks.
+
+### 13.1 Adding Expression/Function Support
+
+**When needed:** Operator validation fails with "Expression X not supported"
+
+**Quick Process:**
+
+1. **Add mapping** in `ExpressionMappings.scala`:
+   ```scala
+   classOf[MyExpression] -> "substrait_function_name"
+   ```
+
+2. **Create transformer** (if complex logic needed):
+   ```scala
+   case class MyExpressionTransformer(...) extends ExpressionTransformer {
+     override def doTransform(context: SubstraitContext): ExpressionNode = {
+       ExpressionBuilder.makeScalarFunction(
+         context.registerFunction(substraitExprName),
+         childNodes.asJava,
+         TypeBuilder.makeType(original.dataType)
+       )
+     }
+   }
+   ```
+
+3. **Verify Velox support** in `cpp/velox/functions/`:
+   ```bash
+   grep -r "substrait_function_name" cpp/velox/functions/
+   ```
+
+4. **Implement in Velox** (if missing):
+   ```cpp
+   template <typename T>
+   struct MyFunction {
+     VELOX_DEFINE_FUNCTION_TYPES(T);
+     FOLLY_ALWAYS_INLINE void call(
+         out_type<ResultType>& result,
+         const arg_type<InputType>& input) {
+       // Implementation
+     }
+   };
+   VELOX_REGISTER_VECTOR_FUNCTION(udf_my_function, "substrait_function_name")
+   ```
+
+**Key files:**
+- Mappings: `gluten-substrait/.../expression/ExpressionMappings.scala`
+- Transformers: `gluten-substrait/.../expression/`
+- Velox functions: `cpp/velox/functions/sparksql/`
+
+### 13.2 Debugging Performance Issues
+
+**Step-by-step debugging:**
+
+1. **Enable debug logging:**
+   ```scala
+   spark.conf.set("spark.gluten.sql.columnar.physicalPlan.debug", "true")
+   ```
+
+2. **Check query plan for fallbacks:**
+   ```scala
+   df.explain(true)  // Look for operators WITHOUT "Transformer" suffix
+   ```
+
+3. **Analyze Spark UI metrics** (`http://localhost:4040`):
+   - High CPU time = compute-bound
+   - Wall time >> CPU time = IO wait
+   - High peak memory = memory pressure
+
+4. **Profile native code:**
+   ```bash
+   perf record -g -p <java_pid>
+   perf report
+   ```
+
+**Common fixes:**
+- **Fallbacks**: Add missing operator/expression support
+- **OOM**: Increase `spark.memory.offHeap.size`
+- **Slow operators**: Profile with perf, check vectorization
+
+### 13.3 Adding Data Type Support
+
+**Process:**
+
+1. **Add Spark → Substrait mapping** in `TypeBuilder.scala`:
+   ```scala
+   case MyCustomType => makeMyCustomType(nullable)
+   ```
+
+2. **Add Substrait → Velox mapping** in `cpp/velox/substrait/TypeUtils.cc`:
+   ```cpp
+   if (type.has_my_custom_type()) return MY_CUSTOM_TYPE();
+   ```
+
+3. **Test:**
+   ```scala
+   val df = spark.createDataFrame(data, schema)  // with MyCustomType
+   runQueryAndCompare(df) { checkGlutenOperatorMatch[...] }
+   ```
+
+### 13.4 Critical Configuration Tuning
+
+**Memory (most important):**
+```scala
+spark.memory.offHeap.enabled = true
+spark.memory.offHeap.size = 8g  // 60-70% of executor memory
+spark.gluten.memory.reservation = 4g
+```
+
+**Batch size:**
+```scala
+spark.sql.execution.arrow.maxRecordsPerBatch = 10000  // Smaller = less memory
+```
+
+**Shuffle:**
+```scala
+spark.shuffle.manager = org.apache.spark.shuffle.sort.ColumnarShuffleManager
+spark.sql.shuffle.partitions = 200  // 2-3x cores
+```
+
+**Joins:**
+```scala
+spark.sql.autoBroadcastJoinThreshold = 10485760  // 10MB
+spark.gluten.sql.columnar.forceShuffledHashJoin = true
+```
+
+### 13.5 Understanding Execution Flow
+
+```
+SQL Query
+  ↓
+Spark Logical Plan
+  ↓
+[GLUTEN INTERCEPTS]
+  ↓
+ColumnarOverrides → Replace operators with Transformers
+  ↓
+Validation → Check native support (JNI call)
+  ↓
+  ├─ Supported → Keep Transformer
+  └─ Not supported → Fallback to Spark
+  ↓
+Transformation → Build Substrait plan
+  ↓
+JNI → Send Substrait bytes to native
+  ↓
+[NATIVE EXECUTION]
+  ↓
+Velox/CH → Convert Substrait to native plan
+  ↓
+Execute → Process columnar batches
+  ↓
+Return → ColumnarBatch back to Spark
+```
+
+**Key transformation points:**
+1. `ColumnarOverrideRules.scala` - Pattern match & replace operators
+2. `TransformSupport.doValidate()` - Check native support
+3. `TransformSupport.doTransform()` - Build Substrait
+4. `cpp/.../JniWrapper.cc` - JNI boundary
+5. `cpp/.../SubstraitToVeloxPlan.cc` - Native conversion
+
+### 13.6 Performance Tuning Checklist
+
+**Before running queries:**
+- [ ] Set `spark.memory.offHeap.size` to 60-70% executor memory
+- [ ] Use Parquet/ORC (columnar formats)
+- [ ] Enable CBO: `spark.sql.cbo.enabled = true`
+- [ ] Set shuffle partitions: 2-3x cores
+
+**When queries are slow:**
+- [ ] Check Spark UI for fallbacks (operators without "Transformer")
+- [ ] Monitor peak memory (reduce batch size if OOM)
+- [ ] Profile with `perf` for CPU hotspots
+- [ ] Check task distribution (avoid data skew)
+
+**Monitoring metrics to watch:**
+- CPU time (should be high for compute-intensive queries)
+- Peak memory (watch for OOM)
+- Input/output rows (check selectivity)
+- Spill metrics (shouldn't spill to disk)
+
+---
+
 ## Conclusion
 
-This guide has covered the complete process of adding operator support to Apache Gluten:
+This comprehensive guide covers Gluten development from operators to performance tuning:
 
-1. **Understanding**: Architecture, transformation pipeline, validation vs execution
-2. **Research**: Studying existing patterns, checking backend support
-3. **Implementation**: Scala transformers, backend integration, C++ conversion
-4. **Testing**: Comprehensive test coverage, edge cases, performance
-5. **Quality**: Code formatting, style checks, documentation
-6. **Contribution**: PR creation, review process, community guidelines
+1. **Operators**: Add new operator support with transformers
+2. **Expressions**: Add function support for new Spark expressions
+3. **Performance**: Debug and optimize query execution
+4. **Configuration**: Tune memory, batch sizes, and execution
+5. **Architecture**: Understand the full execution pipeline
 
-**Key Takeaways:**
-- Start with simple operators (like Limit) before tackling complex ones
-- Follow existing patterns closely - consistency is crucial
-- Test thoroughly - edge cases matter
-- Validate early - catch unsupported cases during planning
-- Document well - help future contributors
+**Key principles:**
+- Start simple, follow existing patterns
+- Test thoroughly with edge cases
+- Validate early to catch unsupported features
+- Profile and measure performance
+- Document for future contributors
 
-**Next Steps:**
-- Pick an operator that currently falls back
-- Study similar implementations
-- Implement transformer with tests
-- Submit PR and iterate with reviewers
+**Quick references:**
+- File locations: Section 12.8
+- Common commands: Section 12.7
+- Code templates: Section 12.10
+- Error solutions: Section 10.5
 
 Good luck with your contributions to Apache Gluten!
 
 ---
 
-**Document Version:** 1.0
-**Last Updated:** 2025-01-XX
+**Document Version:** 2.0
+**Last Updated:** 2025-11-18
 **Maintainers:** Apache Gluten Community

@@ -189,9 +189,11 @@ cd incubator-gluten
 #### TransformSupport
 The root trait for all operators that can be transformed to native execution.
 
+**Location:** `gluten-substrait/src/main/scala/org/apache/gluten/execution/WholeStageTransformer.scala:59`
+
 **Key Methods:**
 ```scala
-trait TransformSupport extends SparkPlan {
+trait TransformSupport extends ValidatablePlan {
   // Validation phase - check if native backend supports this operation
   protected def doValidateInternal(): ValidationResult
 
@@ -206,8 +208,20 @@ trait TransformSupport extends SparkPlan {
 
   // Final transformation (cached)
   final def transform(context: SubstraitContext): TransformContext
+
+  // Batch type for columnar execution
+  override def batchType(): Convention.BatchType
+
+  // Node name for debugging and metrics
+  override def nodeName: String
 }
 ```
+
+**Important Notes:**
+- `doValidateInternal()` is called during planning - must be fast and lightweight
+- `doTransform()` is called during execution - can be more expensive
+- Both methods are cached, so they're only called once per operator instance
+- Actual implementations are in concrete transformer classes (see `LimitExecTransformer.scala:29`)
 
 #### UnaryTransformSupport
 For operators with a single child (Filter, Project, Sort, Limit, etc.)
@@ -305,11 +319,266 @@ override protected def doTransform(context: SubstraitContext): TransformContext 
 }
 ```
 
+### 3.5 SubstraitContext Deep Dive
+
+SubstraitContext is a critical object that tracks state during plan generation.
+
+**Location:** `gluten-substrait/src/main/scala/org/apache/gluten/substrait/SubstraitContext.scala:48`
+
+**What SubstraitContext Tracks:**
+
+```scala
+class SubstraitContext {
+  // Function registry: maps function names to IDs
+  private val functionMap: JHashMap[String, JLong]
+
+  // Operator to Substrait Rel ID mapping
+  private val operatorToRelsMap: JMap[JLong, JList[JLong]]
+
+  // Join-specific parameters
+  private val joinParamsMap: JHashMap[JLong, JoinParams]
+
+  // Aggregation-specific parameters
+  private val aggregationParamsMap: JHashMap[JLong, AggregationParams]
+
+  // Auto-incrementing IDs
+  private var iteratorIndex: JLong = 0L
+  private var operatorId: JLong = 0L
+  private var relId: JLong = 0L
+}
+```
+
+**Key Methods:**
+```scala
+// Register a function (e.g., "add", "substring") and get its ID
+def registerFunction(funcName: String): JLong
+
+// Get next operator ID for your transformer
+def nextOperatorId(nodeName: String): JLong
+
+// Register this rel to an operator
+def registerRelToOperator(operatorId: JLong): Unit
+```
+
+**Usage Example (from LimitExecTransformer.scala:44-50):**
+```scala
+override protected def doValidateInternal(): ValidationResult = {
+  val context = new SubstraitContext  // Create fresh context
+  val operatorId = context.nextOperatorId(this.nodeName)  // Get unique ID
+  val relNode = getRelNode(context, operatorId, ...)  // Build Substrait
+  doNativeValidation(context, relNode)  // Validate with backend
+}
+```
+
+### 3.6 ValidationResult Patterns
+
+ValidationResult is a sealed trait with two states: Succeeded or Failed.
+
+**Location:** `gluten-substrait/src/main/scala/org/apache/gluten/execution/ValidationResult.scala:26`
+
+**Structure:**
+```scala
+sealed trait ValidationResult {
+  def ok(): Boolean
+  def reason(): String
+}
+
+object ValidationResult {
+  def succeeded: ValidationResult
+  def failed(reason: String, prefix: String = "\n - "): ValidationResult
+  def merge(left: ValidationResult, right: ValidationResult): ValidationResult
+}
+```
+
+**Common Patterns:**
+
+```scala
+// Pattern 1: Simple success
+ValidationResult.succeeded
+
+// Pattern 2: Simple failure
+ValidationResult.failed("Operator not supported")
+
+// Pattern 3: Conditional validation
+if (backendSupportsOperation) {
+  ValidationResult.succeeded
+} else {
+  ValidationResult.failed(s"Backend doesn't support $operationType")
+}
+
+// Pattern 4: Early return on failure
+val childValidation = validateChild()
+if (!childValidation.ok()) {
+  return childValidation  // Propagate failure
+}
+
+// Pattern 5: Merge multiple validations
+val validation1 = validatePart1()
+val validation2 = validatePart2()
+ValidationResult.merge(validation1, validation2)
+
+// Pattern 6: Wrap expression conversion (catches exceptions)
+val validationResult = ValidationResult.wrap {
+  val expressions = convertExpressions()
+  doNativeValidation(context, relNode)
+}
+```
+
+**Real Example from Codebase:**
+Most operators follow this pattern (see `LimitExecTransformer.scala:44`):
+```scala
+override protected def doValidateInternal(): ValidationResult = {
+  val context = new SubstraitContext
+  val operatorId = context.nextOperatorId(this.nodeName)
+  val relNode = getRelNode(context, operatorId, offset, count, child.output, null, true)
+  doNativeValidation(context, relNode)  // Calls JNI to ask backend
+}
+```
+
+### 3.7 BackendsApiManager Deep Dive
+
+BackendsApiManager is a singleton that routes to backend-specific implementations.
+
+**Location:** `gluten-substrait/src/main/scala/org/apache/gluten/backendsapi/BackendsApiManager.scala:21`
+
+**Architecture:**
+```
+BackendsApiManager (singleton)
+        │
+        ├─> getSparkPlanExecApiInstance → Creates transformers
+        ├─> getMetricsApiInstance → Defines metrics
+        ├─> getValidatorApiInstance → Validates operators
+        ├─> getTransformerApiInstance → Transformer utilities
+        └─> getSettings → Backend configuration
+```
+
+**Usage Examples from Real Code:**
+
+```scala
+// Creating transformers (from any transformation rule):
+val transformer = BackendsApiManager.getSparkPlanExecApiInstance
+  .genFilterExecTransformer(condition, child)
+
+// Getting metrics (from LimitExecTransformer.scala:33):
+@transient override lazy val metrics =
+  BackendsApiManager.getMetricsApiInstance.genLimitTransformerMetrics(sparkContext)
+
+// Getting metrics updater (from LimitExecTransformer.scala:41):
+override def metricsUpdater(): MetricsUpdater =
+  BackendsApiManager.getMetricsApiInstance.genLimitTransformerMetricsUpdater(metrics)
+```
+
+**Backend Detection:**
+BackendsApiManager automatically detects which backend is loaded (Velox or ClickHouse) at initialization and routes all API calls to the appropriate implementation.
+
+### 3.8 How Transformation Rules Work
+
+Operators get transformed to Gluten transformers via Spark's rule-based optimizer.
+
+**Key Transformation Entry Points:**
+
+1. **ColumnarOverrides Rule** - Main transformation rule
+   - Matches Spark operators and replaces with transformers
+   - Located in `gluten-core` module
+   - Runs during Spark's physical planning phase
+
+2. **Pattern Matching Example:**
+```scala
+// Simplified example of how rules work:
+def apply(plan: SparkPlan): SparkPlan = plan transformDown {
+  case limit @ LimitExec(count, child) =>
+    // Create transformer
+    LimitExecTransformer(child, offset = 0, count)
+
+  case filter @ FilterExec(condition, child) =>
+    BackendsApiManager.getSparkPlanExecApiInstance
+      .genFilterExecTransformer(condition, child)
+
+  case project @ ProjectExec(projectList, child) =>
+    ProjectExecTransformer(projectList, child)
+}
+```
+
+3. **Validation Before Transformation:**
+Before a transformer replaces a Spark operator, Gluten validates it:
+```scala
+val transformer = createTransformer(sparkOperator)
+val validationResult = transformer.doValidate()
+if (validationResult.ok()) {
+  // Use transformer
+  transformer
+} else {
+  // Fallback to vanilla Spark
+  logInfo(s"Fallback: ${validationResult.reason()}")
+  sparkOperator
+}
+```
+
 ---
 
 ## 4. Development Process
 
 Adding operator support follows a **5-phase workflow**:
+
+### Quick Decision Tree
+
+Before starting, use this decision tree to determine your approach:
+
+```
+Start: Want to add operator support
+    │
+    ├─> Is the Spark operator already transformed?
+    │   └─> YES: Check gluten-substrait/src/main/scala/org/apache/gluten/execution/
+    │       └─> Operator exists: Enhance existing transformer
+    │       └─> Operator missing: Backend doesn't support it yet
+    │
+    ├─> NO: Proceed with new implementation
+        │
+        ├─> What type of operator?
+        │   ├─> Unary (1 child): Filter, Project, Limit, Sort
+        │   │   └─> Base: UnaryTransformSupport
+        │   │   └─> Example: LimitExecTransformer.scala:29
+        │   │
+        │   ├─> Binary (2 children): Joins, Union, Set operations
+        │   │   └─> Base: BinaryTransformSupport
+        │   │   └─> Example: HashJoinExecTransformer
+        │   │
+        │   └─> Leaf (no children): Scans, Literals
+        │       └─> Base: LeafTransformSupport
+        │       └─> Example: FileSourceScanExecTransformer
+        │
+        ├─> Does it process expressions?
+        │   ├─> YES: Need ExpressionTransformer support
+        │   │   └─> Check: ExpressionMappings.scala for expression support
+        │   │   └─> Example: ProjectExecTransformer (many expressions)
+        │   │
+        │   └─> NO: Simple parameter passing
+        │       └─> Example: LimitExecTransformer (just offset/count)
+        │
+        ├─> Backend support?
+        │   ├─> Velox: Check cpp/velox/substrait/SubstraitToVeloxPlan.cc
+        │   │   └─> Has toVeloxPlan(MyOperatorRel)? → YES: Easy
+        │   │   └─> Missing? → Need to add C++ support first
+        │   │
+        │   └─> ClickHouse: Check backends-clickhouse/ similarly
+        │
+        └─> Substrait support?
+            ├─> Standard Substrait type exists?
+            │   └─> YES: Use RelBuilder.makeXXXRel()
+            │   └─> NO: May need custom extension
+```
+
+### Implementation Complexity Guide
+
+| Operator Type | Complexity | Time Estimate | Key Challenges |
+|---------------|------------|---------------|----------------|
+| Simple Unary (Limit, Sample) | Low | 1-2 days | Minimal - parameter passing only |
+| Filter | Medium | 2-3 days | Expression validation |
+| Project | Medium | 2-4 days | Multiple expression types |
+| Sort | Medium | 2-4 days | Sort order handling |
+| Join | High | 5-10 days | Multiple join types, conditions, projections |
+| Aggregate | High | 7-14 days | Multiple phases, aggregate functions, grouping |
+| Window | Very High | 14+ days | Complex frame specs, multiple functions |
 
 ### Phase 1: Research and Planning
 
@@ -1062,6 +1331,124 @@ test("project_with_complex_types") {
 3. **Factory Pattern**: Use `apply()` for creation, which goes through backend API
 4. **Validation Wrapping**: Expression conversion wrapped in try-catch for validation
 
+### 6.7 Expression Transformer Deep Dive
+
+Understanding expression transformation is crucial for operators that process expressions.
+
+**Location:** `gluten-substrait/src/main/scala/org/apache/gluten/expression/ExpressionConverter.scala:42`
+
+#### How Expression Conversion Works
+
+**Entry Point:**
+```scala
+// From ExpressionConverter.scala:44-49
+def replaceWithExpressionTransformer(
+    exprs: Seq[Expression],
+    attributeSeq: Seq[Attribute]): Seq[ExpressionTransformer] = {
+  val expressionsMap = ExpressionMappings.expressionsMap
+  exprs.map(expr => replaceWithExpressionTransformer0(expr, attributeSeq, expressionsMap))
+}
+```
+
+#### Common Expression Transformers
+
+**File Locations:**
+- `gluten-substrait/src/main/scala/org/apache/gluten/expression/` - Base transformers
+- Expression mapping registry in `ExpressionMappings.scala`
+
+**Expression Transformer Examples:**
+
+1. **Literal Values:**
+```scala
+// Spark: Literal(42, IntegerType)
+// Transformer: LiteralTransformer
+// Substrait: Literal { i32: 42 }
+```
+
+2. **Attribute References (Column Access):**
+```scala
+// Spark: AttributeReference("col1", IntegerType, ordinal=0)
+// Transformer: AttributeReferenceTransformer
+// Substrait: FieldReference { direct_reference { struct_field { field: 0 } } }
+```
+
+3. **Binary Arithmetic:**
+```scala
+// Spark: Add(col("a"), Literal(1))
+// Transformer: AddExpressionTransformer
+// Substrait: ScalarFunction {
+//   function_reference: 0,  // "add" function
+//   arguments: [FieldReference(0), Literal(1)]
+// }
+```
+
+4. **String Functions:**
+```scala
+// Spark: Substring(col("name"), Literal(1), Literal(10))
+// Transformer: SubstringExpressionTransformer
+// Substrait: ScalarFunction {
+//   function_reference: N,  // "substring" function
+//   arguments: [FieldReference(x), Literal(1), Literal(10)]
+// }
+```
+
+5. **Conditional Expressions:**
+```scala
+// Spark: If(condition, thenExpr, elseExpr)
+// Transformer: IfExpressionTransformer
+// Substrait: IfThen {
+//   ifs: [{if: condition_expr, then: then_expr}],
+//   else: else_expr
+// }
+```
+
+#### Expression Mapping Pattern
+
+Expressions are mapped via a registry system:
+
+```scala
+// Simplified from ExpressionMappings.scala
+val expressionsMap: Map[Class[_], String] = Map(
+  classOf[Add] -> "add",
+  classOf[Subtract] -> "subtract",
+  classOf[Multiply] -> "multiply",
+  classOf[Substring] -> "substring",
+  classOf[Upper] -> "upper",
+  classOf[Lower] -> "lower"
+  // ... hundreds more
+)
+```
+
+#### Handling Unsupported Expressions
+
+```scala
+// Pattern for handling unsupported expressions:
+def validateExpressions(exprs: Seq[Expression]): ValidationResult = {
+  try {
+    val transformers = ExpressionConverter.replaceWithExpressionTransformer(
+      exprs,
+      inputAttributes
+    )
+    ValidationResult.succeeded
+  } catch {
+    case e: GlutenNotSupportException =>
+      ValidationResult.failed(s"Expression not supported: ${e.getMessage}")
+    case e: Exception =>
+      ValidationResult.failed(s"Expression conversion failed: ${e.getMessage}")
+  }
+}
+```
+
+#### Testing Expression Support
+
+```scala
+// Check if expression is supported before using:
+val canTransform = ExpressionConverter.canReplaceWithExpressionTransformer(
+  expr,
+  inputAttributes
+)
+```
+
 ---
 
 ## 7. Example 3: Complex Operator (HashAggregate)
@@ -1503,6 +1890,269 @@ If adding entirely new operator types not in standard Substrait:
 
 3. **Document Mapping:**
    Add to `docs/developers/SubstraitModifications.md`
+
+### 8.5 Common Helper Utilities and Patterns
+
+This section provides ready-to-use patterns and utilities found throughout the codebase.
+
+#### Utility: RelBuilder Methods
+
+**Location:** `gluten-substrait/src/main/scala/org/apache/gluten/substrait/rel/RelBuilder.scala`
+
+Common RelBuilder methods you'll use:
+
+```scala
+// Create FetchRel (Limit)
+RelBuilder.makeFetchRel(input, offset, count, context, operatorId)
+
+// Create FilterRel
+RelBuilder.makeFilterRel(input, condition, context, operatorId)
+
+// Create ProjectRel
+RelBuilder.makeProjectRel(
+  originalInputAttributes.asJava,
+  input,
+  expressionNodes.asJava,
+  context,
+  operatorId,
+  validation
+)
+
+// Create SortRel
+RelBuilder.makeSortRel(input, sortExpressions, context, operatorId)
+
+// Create AggregateRel
+RelBuilder.makeAggregateRel(
+  input,
+  groupingExpressions,
+  aggregateFunctions,
+  context,
+  operatorId
+)
+
+// Create JoinRel
+RelBuilder.makeJoinRel(
+  leftInput,
+  rightInput,
+  joinType,
+  condition,
+  context,
+  operatorId
+)
+
+// Create extension node (for validation)
+RelBuilder.createExtensionNode(attributes.asJava)
+```
+
+#### Pattern: Metrics Definition
+
+**Common Metrics Pattern (from various transformers):**
+
+```scala
+// In your transformer:
+@transient override lazy val metrics =
+  BackendsApiManager.getMetricsApiInstance.genYourOperatorMetrics(sparkContext)
+
+// Then in MetricsApi implementation (Velox/CH specific):
+def genYourOperatorMetrics(sparkContext: SparkContext): Map[String, SQLMetric] = Map(
+  "numOutputRows" -> SQLMetrics.createMetric(sparkContext, "number of output rows"),
+  "numOutputBatches" -> SQLMetrics.createMetric(sparkContext, "number of output batches"),
+  "numInputRows" -> SQLMetrics.createMetric(sparkContext, "number of input rows"),
+  "wallNanos" -> SQLMetrics.createNanoTimingMetric(sparkContext, "time in operator"),
+  "cpuNanos" -> SQLMetrics.createNanoTimingMetric(sparkContext, "cpu time"),
+  "peakMemoryBytes" -> SQLMetrics.createSizeMetric(sparkContext, "peak memory usage")
+)
+
+// Metrics updater:
+def genYourOperatorMetricsUpdater(metrics: Map[String, SQLMetric]): MetricsUpdater = {
+  new MetricsUpdater {
+    override def updateNativeMetrics(opMetrics: OperatorMetrics): Unit = {
+      if (opMetrics != null) {
+        metrics("numOutputRows") += opMetrics.outputRows
+        metrics("numOutputBatches") += opMetrics.outputVectors
+        metrics("wallNanos") += opMetrics.wallNanos
+        metrics("cpuNanos") += opMetrics.cpuNanos
+        metrics("peakMemoryBytes") += opMetrics.peakMemoryBytes
+      }
+    }
+  }
+}
+```
+
+#### Pattern: Java Collections Conversion
+
+Gluten uses Java collections for JNI interop. Common conversions:
+
+```scala
+import scala.collection.JavaConverters._
+
+// Scala to Java
+val scalaSeq: Seq[Attribute] = Seq(...)
+val javaList: JList[Attribute] = scalaSeq.asJava
+
+val scalaMap: Map[String, Int] = Map(...)
+val javaMap: JMap[String, Int] = scalaMap.asJava
+
+// Java to Scala
+val javaList: JList[String] = ...
+val scalaSeq: Seq[String] = javaList.asScala.toSeq
+```
+
+#### Pattern: Handling Optional Input Nodes
+
+```scala
+def getRelNode(
+    context: SubstraitContext,
+    operatorId: Long,
+    input: RelNode,
+    validation: Boolean): RelNode = {
+
+  if (!validation) {
+    // Production path - input is real child node
+    RelBuilder.makeMyOperatorRel(input, params, context, operatorId)
+  } else {
+    // Validation path - create mock input if needed
+    val validationInput = if (input == null) {
+      // Create extension node with schema info
+      RelBuilder.createExtensionNode(inputAttributes.asJava)
+    } else {
+      input
+    }
+    RelBuilder.makeMyOperatorRel(validationInput, params, context, operatorId)
+  }
+}
+```
+
+#### Pattern: Type Conversion
+
+```scala
+// Spark DataType to Substrait Type
+import org.apache.gluten.substrait.`type`.TypeBuilder
+
+val sparkType: DataType = IntegerType
+val substraitType: TypeNode = TypeBuilder.makeI32(nullable = false)
+
+// Common type conversions:
+IntegerType    → TypeBuilder.makeI32()
+LongType       → TypeBuilder.makeI64()
+FloatType      → TypeBuilder.makeFP32()
+DoubleType     → TypeBuilder.makeFP64()
+StringType     → TypeBuilder.makeString()
+BooleanType    → TypeBuilder.makeBoolean()
+DecimalType(p,s) → TypeBuilder.makeDecimal(p, s)
+```
+
+#### Pattern: Debugging Substrait Plans
+
+```scala
+// Add this temporarily to see generated Substrait:
+import org.apache.gluten.utils.SubstraitPlanPrinterUtil
+
+override protected def doTransform(context: SubstraitContext): TransformContext = {
+  val result = super.doTransform(context)
+
+  // Print Substrait plan (human-readable)
+  println(s"=== Substrait Plan for ${this.getClass.getSimpleName} ===")
+  println(SubstraitPlanPrinterUtil.substraitRelToString(result.root))
+
+  // Or print protobuf (detailed)
+  println(result.root.toProtobuf.toString)
+
+  result
+}
+```
+
+#### Pattern: Child Transformation
+
+```scala
+// For UnaryTransformSupport:
+override protected def doTransform(context: SubstraitContext): TransformContext = {
+  // Always transform child first
+  val childCtx = child.asInstanceOf[TransformSupport].transform(context)
+
+  // Use childCtx.root as input to your operator
+  val operatorId = context.nextOperatorId(this.nodeName)
+  val relNode = buildMyOperator(childCtx.root, operatorId, context)
+
+  // Return with your output schema
+  TransformContext(output, relNode)
+}
+
+// For BinaryTransformSupport (e.g., joins):
+override protected def doTransform(context: SubstraitContext): TransformContext = {
+  // Transform both children
+  val leftCtx = left.asInstanceOf[TransformSupport].transform(context)
+  val rightCtx = right.asInstanceOf[TransformSupport].transform(context)
+
+  val operatorId = context.nextOperatorId(this.nodeName)
+  val relNode = buildJoin(leftCtx.root, rightCtx.root, operatorId, context)
+
+  TransformContext(output, relNode)
+}
+```
+
+#### Pattern: Configuration Access
+
+```scala
+import org.apache.gluten.config.GlutenConfig
+
+// Access Gluten configs in your transformer:
+val enableNativeValidation = GlutenConfig.getConf.enableNativeValidation
+val columnarBatchSize = GlutenConfig.getConf.columnarBatchSize
+val memoryLimit = GlutenConfig.getConf.memoryReservationBlockSize
+
+// Check if feature is enabled:
+if (GlutenConfig.getConf.enableMyFeature) {
+  // Use feature
+}
+```
+
+#### Pattern: Error Handling
+
+```scala
+// Validation errors - return failed result
+override protected def doValidateInternal(): ValidationResult = {
+  if (!isSupported) {
+    return ValidationResult.failed(s"$nodeName: feature X not supported")
+  }
+
+  try {
+    // Validation logic
+    doNativeValidation(context, relNode)
+  } catch {
+    case e: GlutenNotSupportException =>
+      ValidationResult.failed(s"$nodeName: ${e.getMessage}")
+    case e: Exception =>
+      ValidationResult.failed(s"$nodeName validation failed: ${e.getMessage}")
+  }
+}
+
+// Transformation errors - throw exceptions
+override protected def doTransform(context: SubstraitContext): TransformContext = {
+  require(child != null, "Child cannot be null")
+  require(output.nonEmpty, "Output schema cannot be empty")
+
+  // Transformation logic - exceptions will be caught by Gluten framework
+}
+```
+
+#### Pattern: Attribute Ordinal Tracking
+
+```scala
+// Attributes have ordinals that map to field positions
+val inputAttributes: Seq[Attribute] = child.output
+
+// Find attribute by name:
+val attr = inputAttributes.find(_.name == "col1").getOrElse(
+  throw new IllegalArgumentException(s"Column col1 not found")
+)
+
+// Get ordinal (position in tuple):
+val ordinal = inputAttributes.indexOf(attr)
+
+// Create field reference:
+val fieldRef = ExpressionBuilder.makeSelection(ordinal)
+```
 
 ---
 
@@ -2020,6 +2670,319 @@ gdb cpp/build/releases/libgluten.so /tmp/cores/core-java-12345-1234567890
 (gdb) list
 ```
 
+### 10.5 Common Error Scenarios and Solutions
+
+This section catalogs real errors you might encounter and their solutions.
+
+#### Error 1: Validation Failed with No Details
+
+**Error:**
+```
+Query falls back to vanilla Spark
+Plan shows original Spark operator, not transformer
+```
+
+**Cause:**
+`doValidateInternal()` returned `ValidationResult.failed()` but reason isn't visible.
+
+**Solution:**
+```scala
+// Add debug logging to see validation failures:
+override protected def doValidateInternal(): ValidationResult = {
+  val result = try {
+    val context = new SubstraitContext
+    val operatorId = context.nextOperatorId(this.nodeName)
+    val relNode = getRelNode(context, operatorId, ..., null, true)
+    doNativeValidation(context, relNode)
+  } catch {
+    case e: Exception =>
+      ValidationResult.failed(s"Validation exception: ${e.getMessage}")
+  }
+
+  // Debug logging
+  if (!result.ok()) {
+    logWarning(s"${this.getClass.getSimpleName} validation failed: ${result.reason()}")
+  }
+
+  result
+}
+```
+
+#### Error 2: ClassCastException in doTransform
+
+**Error:**
+```
+java.lang.ClassCastException: org.apache.spark.sql.execution.FilterExec
+cannot be cast to org.apache.gluten.execution.TransformSupport
+```
+
+**Cause:**
+Child operator isn't a transformer (fallback happened for child).
+
+**Solution:**
+```scala
+// Check if child is actually transformable before casting:
+override protected def doTransform(context: SubstraitContext): TransformContext = {
+  child match {
+    case transformChild: TransformSupport =>
+      val childCtx = transformChild.transform(context)
+      // Continue with transformation
+    case _ =>
+      throw new GlutenException(
+        s"Child of $nodeName is not transformed. " +
+        s"This indicates validation passed incorrectly."
+      )
+  }
+}
+
+// Better: Validate child during doValidateInternal:
+override protected def doValidateInternal(): ValidationResult = {
+  child match {
+    case _: TransformSupport =>
+      // Continue validation
+    case _ =>
+      return ValidationResult.failed(s"Child is not transformable")
+  }
+  // Rest of validation
+}
+```
+
+#### Error 3: Substrait Function Not Found
+
+**Error:**
+```
+Native validation failed: Function 'my_function' not registered
+```
+
+**Cause:**
+Function name mismatch between Spark, Substrait, and Velox.
+
+**Solution:**
+```scala
+// 1. Check ExpressionMappings.scala for correct Substrait function name
+// 2. Verify Velox supports this function in cpp/velox/functions/
+
+// Debug: Print registered functions
+val context = new SubstraitContext
+// Try registering the function
+val funcId = context.registerFunction("my_function")
+println(s"Function ID: $funcId, all functions: ${context.registeredFunction}")
+
+// 3. Check Velox function registry:
+// cpp/velox/functions/prestosql/registration/ArithmeticFunctionsRegistration.cpp
+// Look for VELOX_REGISTER_VECTOR_FUNCTION(udf_my_function, "my_function")
+```
+
+#### Error 4: Schema Mismatch After Transformation
+
+**Error:**
+```
+Schema mismatch: Expected [a:int, b:string], got [a:int]
+```
+
+**Cause:**
+`output` attribute list doesn't match actual Substrait output.
+
+**Solution:**
+```scala
+// Ensure output matches what Substrait produces:
+override def output: Seq[Attribute] = {
+  // For pass-through operators:
+  child.output
+
+  // For projection operators:
+  projectList.map(_.toAttribute)
+
+  // For joins:
+  left.output ++ right.output
+
+  // For aggregates:
+  groupingExpressions.map(_.toAttribute) ++
+    aggregateExpressions.map(_.resultAttribute)
+}
+
+// Debug: Print schemas
+println(s"Expected output: ${output.map(a => s"${a.name}:${a.dataType}").mkString(", ")}")
+println(s"Child output: ${child.output.map(a => s"${a.name}:${a.dataType}").mkString(", ")}")
+```
+
+#### Error 5: NullPointerException in Native Code
+
+**Error:**
+```
+SIGSEGV (Segmentation fault)
+JNI ERROR: app bug: accessed null object
+```
+
+**Cause:**
+Null pointer passed to JNI or Substrait plan has null field.
+
+**Solution:**
+```scala
+// Add null checks before JNI calls:
+override protected def doTransform(context: SubstraitContext): TransformContext = {
+  require(context != null, "SubstraitContext cannot be null")
+  require(child != null, "Child cannot be null")
+
+  val childCtx = child.asInstanceOf[TransformSupport].transform(context)
+  require(childCtx != null, "Child transform context cannot be null")
+  require(childCtx.root != null, "Child RelNode cannot be null")
+
+  // Continue transformation
+}
+
+// In getRelNode, ensure all parameters are valid:
+def getRelNode(..., input: RelNode, validation: Boolean): RelNode = {
+  if (!validation && input == null) {
+    throw new IllegalArgumentException("Input RelNode cannot be null in non-validation mode")
+  }
+  // Build RelNode
+}
+```
+
+#### Error 6: Memory Allocation Failure
+
+**Error:**
+```
+std::bad_alloc
+OutOfMemoryError: Direct buffer memory
+```
+
+**Cause:**
+Native memory exhausted during execution.
+
+**Solution:**
+```bash
+# Increase off-heap memory in Spark config:
+spark.memory.offHeap.enabled=true
+spark.memory.offHeap.size=4g  # Increase this
+
+# Or in test:
+override protected def sparkConf: SparkConf = {
+  super.sparkConf
+    .set("spark.memory.offHeap.size", "4g")
+}
+```
+
+#### Error 7: Expression Not Supported
+
+**Error:**
+```
+GlutenNotSupportException: Expression CheckOverflow is not currently supported
+```
+
+**Cause:**
+Expression type not mapped or backend doesn't support it.
+
+**Solution:**
+```scala
+// 1. Check if expression is in ExpressionMappings.scala
+// 2. If not, you need to add expression support first
+// 3. Temporary workaround: Add validation to reject unsupported expressions
+
+override protected def doValidateInternal(): ValidationResult = {
+  // Check for unsupported expressions
+  val unsupportedExprs = findUnsupportedExpressions(projectList)
+  if (unsupportedExprs.nonEmpty) {
+    return ValidationResult.failed(
+      s"Unsupported expressions: ${unsupportedExprs.mkString(", ")}"
+    )
+  }
+  // Continue validation
+}
+
+def findUnsupportedExpressions(exprs: Seq[Expression]): Seq[String] = {
+  exprs.flatMap { expr =>
+    if (!ExpressionConverter.canReplaceWithExpressionTransformer(expr, child.output)) {
+      Some(expr.getClass.getSimpleName)
+    } else {
+      None
+    }
+  }
+}
+```
+
+#### Error 8: Test Comparison Failed
+
+**Error:**
+```
+Results differ:
+Expected: [1, 2, 3]
+Got: [1, 2, 3, 4]
+```
+
+**Cause:**
+Gluten result differs from vanilla Spark result.
+
+**Solution:**
+```scala
+// 1. Check if operator semantics are correct
+// 2. Verify Substrait parameters match Spark parameters
+// 3. Check for off-by-one errors (especially in Limit/Offset)
+
+// Debug: Print both results
+test("debug_comparison") {
+  val query = "SELECT * FROM lineitem LIMIT 10"
+
+  // Run with vanilla Spark
+  withSQLConf("spark.gluten.enabled" -> "false") {
+    val vanillaResult = spark.sql(query).collect()
+    println(s"Vanilla result count: ${vanillaResult.length}")
+    vanillaResult.take(5).foreach(println)
+  }
+
+  // Run with Gluten
+  withSQLConf("spark.gluten.enabled" -> "true") {
+    val glutenResult = spark.sql(query).collect()
+    println(s"Gluten result count: ${glutenResult.length}")
+    glutenResult.take(5).foreach(println)
+  }
+}
+```
+
+#### Error 9: Metrics Not Showing in Spark UI
+
+**Error:**
+Metrics show as 0 or don't appear in Spark UI.
+
+**Solution:**
+```scala
+// 1. Ensure metrics are defined:
+@transient override lazy val metrics =
+  BackendsApiManager.getMetricsApiInstance.genMyOperatorMetrics(sparkContext)
+
+// 2. Ensure metricsUpdater is implemented:
+override def metricsUpdater(): MetricsUpdater =
+  BackendsApiManager.getMetricsApiInstance.genMyOperatorMetricsUpdater(metrics)
+
+// 3. Ensure backend is calling updateNativeMetrics with operator metrics
+// Check in VeloxMetricsApi or CHMetricsApi implementation
+
+// 4. Verify metrics are being collected in native code:
+// For Velox: Check that operator returns stats in toVeloxPlan
+```
+
+#### Error 10: Build Fails with Protobuf Errors
+
+**Error:**
+```
+[ERROR] cannot find symbol: class MyOperatorRel
+```
+
+**Cause:**
+Substrait proto files not regenerated after modification.
+
+**Solution:**
+```bash
+# Regenerate Substrait proto Java/Scala classes:
+cd substrait
+./gradlew clean generateProto
+cd ..
+
+# Rebuild Gluten:
+./dev/build.sh --backends-velox --clean
+```
+
 #### Enable Verbose Logging
 
 ```scala
@@ -2378,7 +3341,66 @@ ValidationResult.succeeded
    - Required for Spark's tree transformation
    - Just copy the case class with new child
 
-### 12.7 Useful Resources
+### 12.7 Quick Find Commands
+
+Essential commands to quickly locate code in the codebase:
+
+```bash
+# Find a specific transformer
+find gluten-substrait/src/main/scala -name "*LimitExec*.scala"
+
+# Find all transformers
+find gluten-substrait/src/main/scala/org/apache/gluten/execution -name "*Transformer.scala"
+
+# Find expression converters
+find gluten-substrait/src/main/scala/org/apache/gluten/expression -name "*.scala"
+
+# Search for a specific operator usage
+grep -r "LimitExecTransformer" gluten-substrait/src/main/scala
+
+# Find where an operator is created (in transformation rules)
+grep -r "genLimitExecTransformer" --include="*.scala"
+
+# Find Velox backend implementation
+grep -r "toVeloxPlan.*FetchRel" cpp/velox/substrait/
+
+# Find test cases for an operator
+find backends-velox/src/test/scala -name "*.scala" -exec grep -l "LIMIT" {} \;
+
+# Find all uses of a specific Substrait method
+grep -r "makeFetchRel" gluten-substrait/
+
+# Find expression mappings
+grep -r "classOf\[Add\]" gluten-substrait/src/main/scala/org/apache/gluten/expression/
+
+# Find metrics definitions
+grep -r "genLimitTransformerMetrics" --include="*.scala"
+
+# Find validation implementations
+grep -r "def doValidateInternal" gluten-substrait/src/main/scala/org/apache/gluten/execution/
+
+# Find C++ operator implementations
+find cpp/velox -name "*.cc" -exec grep -l "LimitNode" {} \;
+```
+
+### 12.8 File Path Quick Reference by Task
+
+**When you want to...**
+
+| Task | File Location |
+|------|---------------|
+| Create a new transformer | `gluten-substrait/src/main/scala/org/apache/gluten/execution/MyOperatorExecTransformer.scala` |
+| Add backend API method | `gluten-substrait/src/main/scala/org/apache/gluten/backendsapi/SparkPlanExecApi.scala` |
+| Implement Velox backend | `backends-velox/src/main/scala/org/apache/gluten/backendsapi/velox/VeloxSparkPlanExecApi.scala` |
+| Add Velox C++ conversion | `cpp/velox/substrait/SubstraitToVeloxPlan.cc` |
+| Add expression support | `gluten-substrait/src/main/scala/org/apache/gluten/expression/MyExpressionTransformer.scala` |
+| Map expression to Substrait | `gluten-substrait/src/main/scala/org/apache/gluten/expression/ExpressionMappings.scala` |
+| Add metrics | `backends-velox/src/main/scala/org/apache/gluten/backendsapi/velox/VeloxMetricsApi.scala` |
+| Write tests | `backends-velox/src/test/scala/org/apache/gluten/execution/MyOperatorSuite.scala` |
+| Check operator support | `docs/velox-backend-support-progress.md` |
+| Add configuration | `gluten-core/src/main/scala/org/apache/gluten/config/GlutenConfig.scala` |
+
+### 12.9 Useful Resources
 
 **Documentation:**
 - [Gluten Architecture](../index.md)
@@ -2395,6 +3417,115 @@ ValidationResult.succeeded
 - [GitHub Issues](https://github.com/apache/incubator-gluten/issues)
 - [Dev Mailing List](dev@gluten.apache.org)
 - [Slack/Discord](Check project README)
+
+**Key Source Files to Study:**
+1. `LimitExecTransformer.scala:29` - Simplest transformer example
+2. `ProjectExecTransformer.scala` - Expression-based operator
+3. `HashAggregateExecBaseTransformer.scala` - Complex operator example
+4. `ExpressionConverter.scala:42` - Expression conversion logic
+5. `SubstraitContext.scala:48` - Context and state tracking
+6. `ValidationResult.scala:26` - Validation pattern
+7. `BackendsApiManager.scala:21` - Backend routing
+8. `cpp/velox/substrait/SubstraitToVeloxPlan.cc` - Velox C++ conversion
+
+### 12.10 Common Code Snippets
+
+**Copy-Paste Template for New Simple Transformer:**
+```scala
+package org.apache.gluten.execution
+
+import org.apache.gluten.backendsapi.BackendsApiManager
+import org.apache.gluten.metrics.MetricsUpdater
+import org.apache.gluten.substrait.SubstraitContext
+import org.apache.gluten.substrait.rel.{RelBuilder, RelNode}
+import org.apache.spark.sql.catalyst.expressions.Attribute
+import org.apache.spark.sql.execution.SparkPlan
+import scala.collection.JavaConverters._
+
+case class MyOperatorExecTransformer(
+    myParam: Int,
+    child: SparkPlan
+  ) extends UnaryTransformSupport {
+
+  @transient override lazy val metrics =
+    BackendsApiManager.getMetricsApiInstance.genMyOperatorMetrics(sparkContext)
+
+  override def output: Seq[Attribute] = child.output
+
+  override protected def withNewChildInternal(newChild: SparkPlan): MyOperatorExecTransformer =
+    copy(child = newChild)
+
+  override def metricsUpdater(): MetricsUpdater =
+    BackendsApiManager.getMetricsApiInstance.genMyOperatorMetricsUpdater(metrics)
+
+  override protected def doValidateInternal(): ValidationResult = {
+    val context = new SubstraitContext
+    val operatorId = context.nextOperatorId(this.nodeName)
+    val relNode = getRelNode(context, operatorId, myParam, child.output, null, true)
+    doNativeValidation(context, relNode)
+  }
+
+  override protected def doTransform(context: SubstraitContext): TransformContext = {
+    val childCtx = child.asInstanceOf[TransformSupport].transform(context)
+    val operatorId = context.nextOperatorId(this.nodeName)
+    val relNode = getRelNode(context, operatorId, myParam, child.output, childCtx.root, false)
+    TransformContext(output, relNode)
+  }
+
+  def getRelNode(
+      context: SubstraitContext,
+      operatorId: Long,
+      myParam: Int,
+      inputAttributes: Seq[Attribute],
+      input: RelNode,
+      validation: Boolean): RelNode = {
+    if (!validation) {
+      RelBuilder.makeMyOperatorRel(input, myParam, context, operatorId)
+    } else {
+      RelBuilder.makeMyOperatorRel(
+        input,
+        myParam,
+        RelBuilder.createExtensionNode(inputAttributes.asJava),
+        context,
+        operatorId
+      )
+    }
+  }
+}
+```
+
+**Copy-Paste Template for Test Suite:**
+```scala
+package org.apache.gluten.execution
+
+import org.apache.spark.SparkConf
+
+class MyOperatorSuite extends VeloxWholeStageTransformerSuite {
+
+  override protected def sparkConf: SparkConf = {
+    super.sparkConf
+      .set("spark.sql.shuffle.partitions", "1")
+      .set("spark.memory.offHeap.size", "2g")
+  }
+
+  override def beforeAll(): Unit = {
+    super.beforeAll()
+    createTPCHNotNullTables()
+  }
+
+  test("my_operator_basic") {
+    runQueryAndCompare("SELECT * FROM lineitem LIMIT 10") { df =>
+      assert(df.count() == 10)
+    }
+  }
+
+  test("my_operator_in_plan") {
+    runQueryAndCompare("SELECT * FROM lineitem LIMIT 10") {
+      checkGlutenOperatorMatch[MyOperatorExecTransformer]
+    }
+  }
+}
+```
 
 ---
 

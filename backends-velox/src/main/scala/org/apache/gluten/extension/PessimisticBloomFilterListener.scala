@@ -14,16 +14,18 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.spark.util
+package org.apache.gluten.extension
 
-import org.apache.spark.SparkContext
+import org.apache.spark.scheduler.{SparkListener, SparkListenerEvent}
+import org.apache.spark.sql.execution.ui.SparkListenerSQLExecutionEnd
 
-object SparkTestUtil {
-  def isTesting: Boolean = {
-    Utils.isTesting
-  }
-
-  def waitForListenerBus(sc: SparkContext): Unit = {
-    sc.listenerBus.waitUntilEmpty(10000)
+class PessimisticBloomFilterListener extends SparkListener {
+  override def onOtherEvent(event: SparkListenerEvent): Unit = {
+    event match {
+      case e: SparkListenerSQLExecutionEnd =>
+        // Cleanup the state when the SQL execution finishes
+        PessimisticTransformer.removeId(e.executionId)
+      case _ =>
+    }
   }
 }

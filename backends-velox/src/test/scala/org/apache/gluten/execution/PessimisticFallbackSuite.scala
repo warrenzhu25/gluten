@@ -17,10 +17,16 @@
 package org.apache.gluten.execution
 
 import org.apache.gluten.config.GlutenConfig
+import org.apache.gluten.extension.PessimisticTransformer
 
 import org.apache.spark.SparkConf
+import org.apache.spark.sql.catalyst.FunctionIdentifier
+import org.apache.spark.sql.catalyst.expressions.{BloomFilterMightContain, Expression, ExpressionInfo}
+import org.apache.spark.sql.catalyst.expressions.aggregate.BloomFilterAggregate
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
+import org.apache.spark.sql.execution.aggregate.ObjectHashAggregateExec
+import org.apache.spark.util.SparkTestUtil
 
 class PessimisticFallbackSuite
   extends VeloxWholeStageTransformerSuite
@@ -30,6 +36,9 @@ class PessimisticFallbackSuite
   protected val rootPath: String = getClass.getResource("/").getPath
   override protected val resourcePath: String = "/tpch-data-parquet"
   override protected val fileFormat: String = "parquet"
+
+  val funcId_bloom_filter_agg = new FunctionIdentifier("bloom_filter_agg")
+  val funcId_might_contain = new FunctionIdentifier("might_contain")
 
   override def beforeAll(): Unit = {
     super.beforeAll()
@@ -52,6 +61,25 @@ class PessimisticFallbackSuite
       .write
       .format("parquet")
       .saveAsTable("tmp3")
+
+    // Register 'bloom_filter_agg' to builtin.
+    spark.sessionState.functionRegistry.registerFunction(
+      funcId_bloom_filter_agg,
+      new ExpressionInfo(classOf[BloomFilterAggregate].getName, "bloom_filter_agg"),
+      (children: Seq[Expression]) =>
+        children.size match {
+          case 1 => new BloomFilterAggregate(children.head)
+          case 2 => new BloomFilterAggregate(children.head, children(1))
+          case 3 => new BloomFilterAggregate(children.head, children(1), children(2))
+        }
+    )
+
+    // Register 'might_contain' to builtin.
+    spark.sessionState.functionRegistry.registerFunction(
+      funcId_might_contain,
+      new ExpressionInfo(classOf[BloomFilterMightContain].getName, "might_contain"),
+      (children: Seq[Expression]) => BloomFilterMightContain(children.head, children(1))
+    )
   }
 
   override protected def sparkConf: SparkConf = {
@@ -61,6 +89,71 @@ class PessimisticFallbackSuite
       .set("spark.memory.offHeap.size", "2g")
       .set("spark.unsafe.exceptionOnMemoryLeak", "true")
       .set(GlutenConfig.PESSIMISTIC_FALLBACK.key, "true")
+  }
+
+  test("Pessimistic Fallback for Bloom Filter") {
+    spark.udf.register("new_udf", () => true)
+
+    val veloxBloomFilterMaxNumBits = 4194304L
+    val table = "tmp1"
+    val numEstimatedItems = 5000000L
+
+    def test(f1: Boolean, f2: Boolean, nativeAggCount: Int, sparkAggCount: Int): Unit = {
+      val sqlString = s"""
+                         |SELECT c2
+                         |FROM $table
+                         |WHERE might_contain(
+                         |            (SELECT bloom_filter_agg(c2,
+                         |              cast($numEstimatedItems as long),
+                         |              cast($veloxBloomFilterMaxNumBits as long))
+                         |             FROM $table), c2) ${if (f1) "AND new_udf()" else ""}
+                         |
+                         |UNION ALL
+                         |
+                         |SELECT c2
+                         |FROM $table
+                         |WHERE might_contain(
+                         |            (SELECT bloom_filter_agg(c2,
+                         |              cast($numEstimatedItems as long),
+                         |              cast($veloxBloomFilterMaxNumBits as long))
+                         |             FROM $table), c2) ${if (f2) "AND new_udf()" else ""}
+                      """.stripMargin
+      val df = spark.sql(sqlString)
+      df.collect()
+      SparkTestUtil.waitForListenerBus(spark.sparkContext)
+      assert(!PessimisticTransformer.fallbackEnabledForId(df.queryExecution.id))
+      assert(collectWithSubqueries(df.queryExecution.executedPlan) {
+        case o: FlushableHashAggregateExecTransformer => o
+        case o: HashAggregateExecTransformer => o
+      }.size == nativeAggCount)
+      assert(collectWithSubqueries(df.queryExecution.executedPlan) {
+        case o: ObjectHashAggregateExec => o
+      }.size == sparkAggCount)
+    }
+
+    withSQLConf(
+      GlutenConfig.PESSIMISTIC_FALLBACK.key -> "true",
+      GlutenConfig.PESSIMISTIC_BLOOM_FILTER.key -> "true"
+    ) {
+      // Test with all the applications of the Bloom Filter as supported
+      test(f1 = false, f2 = false, 4, 0)
+
+      // Test with any application of the Bloom Filter as not supported
+      test(f1 = true, f2 = false, 0, 2)
+      test(f1 = true, f2 = false, 0, 2)
+      test(f1 = true, f2 = true, 0, 2)
+    }
+
+    withSQLConf(
+      GlutenConfig.PESSIMISTIC_FALLBACK.key -> "true",
+      GlutenConfig.PESSIMISTIC_BLOOM_FILTER.key -> "true",
+      "spark.sql.adaptive.enabled" -> "false"
+    ) {
+      test(f1 = false, f2 = false, 0, 2)
+      test(f1 = true, f2 = false, 0, 2)
+      test(f1 = true, f2 = false, 0, 2)
+      test(f1 = true, f2 = true, 0, 2)
+    }
   }
 
   test("Leaf node not supported") {

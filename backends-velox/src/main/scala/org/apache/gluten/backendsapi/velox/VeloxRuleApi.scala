@@ -32,6 +32,7 @@ import org.apache.gluten.extension.injector.{Injector, SparkInjector}
 import org.apache.gluten.extension.injector.GlutenInjector.{LegacyInjector, RasInjector}
 import org.apache.gluten.sql.shims.SparkShimLoader
 
+import org.apache.spark.SparkContext
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.aggregate.{HashAggregateExec, ObjectHashAggregateExec, SortAggregateExec}
 import org.apache.spark.sql.execution.datasources.WriteFilesExec
@@ -42,6 +43,8 @@ import org.apache.spark.sql.execution.joins.BaseJoinExec
 import org.apache.spark.sql.execution.python.EvalPythonExec
 import org.apache.spark.sql.execution.window.WindowExec
 import org.apache.spark.sql.hive.HiveTableScanExecTransformer
+
+import java.util.concurrent.atomic.AtomicBoolean
 
 class VeloxRuleApi extends RuleApi {
   import VeloxRuleApi._
@@ -54,6 +57,14 @@ class VeloxRuleApi extends RuleApi {
 }
 
 object VeloxRuleApi {
+  private val listenerRegistered = new AtomicBoolean(false)
+
+  private def registerListener(sc: SparkContext): Unit = {
+    if (listenerRegistered.compareAndSet(false, true)) {
+      sc.addSparkListener(new PessimisticBloomFilterListener())
+    }
+  }
+
   private def injectSpark(injector: SparkInjector): Unit = {
     // Inject the regular Spark rules directly.
     injector.injectOptimizerRule(CollectRewriteRule.apply)
@@ -86,10 +97,22 @@ object VeloxRuleApi {
         ProjectColumnPruning)
     injector.injectTransform {
       c =>
+        VeloxRuleApi.registerListener(c.session.sparkContext)
+        val idOption = Option(
+          c.session.sparkContext.getLocalProperty(SQLExecution.EXECUTION_ID_KEY)).map(_.toLong)
+        val defaultValidators = validatorBuilder(c.glutenConf)
+        val isAqe = c.caller.isAqe()
         if (c.glutenConf.enablePessimisticFallback) {
-          PessimisticTransformer(validatorBuilder(c.glutenConf), rewrites, offloads)
+          PessimisticTransformer(
+            defaultValidators,
+            rewrites,
+            offloads,
+            isAqe,
+            idOption,
+            injector.getPreTransformRules(c),
+            c.glutenConf)
         } else {
-          HeuristicTransform.WithRewrites(validatorBuilder(c.glutenConf), rewrites, offloads)
+          HeuristicTransform.WithRewrites(defaultValidators, rewrites, offloads)
         }
     }
 

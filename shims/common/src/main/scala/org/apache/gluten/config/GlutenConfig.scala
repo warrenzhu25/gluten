@@ -274,7 +274,12 @@ class GlutenConfig(conf: SQLConf) extends Logging {
   // Options used by RAS.
   def enableRas: Boolean = getConf(RAS_ENABLED)
 
+  // Rules Related to Pessimistic Fallback
   def enablePessimisticFallback: Boolean = getConf(PESSIMISTIC_FALLBACK)
+
+  def enablePessimisticBloomFilter: Boolean = {
+    getConf(PESSIMISTIC_FALLBACK) && getConf(PESSIMISTIC_BLOOM_FILTER)
+  }
 
   def rasCostModel: String = getConf(RAS_COST_MODEL)
 
@@ -1382,6 +1387,15 @@ object GlutenConfig {
         "Only allow continuous chains of Gluten supported operators from the leaves. If there" +
           " is a non supported operator in the plan, fallback all parent operators of that " +
           "node.")
+      .booleanConf
+      .createWithDefault(false)
+
+  val PESSIMISTIC_BLOOM_FILTER =
+    buildConf("spark.dataproc.gluten.pessimistic.bloomFilter")
+      .doc(
+        "Only allow native bloom filter iff all operators that use the bloom filter also " +
+          "support native execution. This is only effective when " +
+          "spark.dataproc.gluten.pessimisticFallback.enabled set to true")
       .booleanConf
       .createWithDefault(false)
 

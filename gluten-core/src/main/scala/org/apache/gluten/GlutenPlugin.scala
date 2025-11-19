@@ -174,6 +174,35 @@ private[gluten] class GlutenDriverPlugin extends DriverPlugin with Logging {
   }
 
   private def setPredefinedConfigs(conf: SparkConf): Unit = {
+    // Pessimistic Fallback Options
+    val isPessimisticFallbackEnabled = conf.getBoolean(
+      GlutenConfig.PESSIMISTIC_FALLBACK.key,
+      GlutenConfig.PESSIMISTIC_FALLBACK.defaultValue.get
+    )
+
+    if (isPessimisticFallbackEnabled) {
+      val isPessimisticFlushableHashAggregate = conf.getBoolean(
+        GlutenConfig.PESSIMISTIC_FLUSHABLE_PARTIAL_AGGREGATION.key,
+        GlutenConfig.PESSIMISTIC_FLUSHABLE_PARTIAL_AGGREGATION.defaultValue.get
+      )
+
+      if (isPessimisticFlushableHashAggregate) {
+        conf.setIfMissing(
+          "spark.gluten.sql.columnar.backend.velox.flushablePartialAggregation",
+          "true")
+        conf.setIfMissing(GlutenConfig.COLUMNAR_EXPAND_ENABLED.key, "false")
+        conf.setIfMissing(GlutenConfig.COLUMNAR_GENERATE_ENABLED.key, "false")
+      } else {
+        conf.setIfMissing(
+          "spark.gluten.sql.columnar.backend.velox.flushablePartialAggregation",
+          "false")
+      }
+    } else {
+      conf.setIfMissing(
+        "spark.gluten.sql.columnar.backend.velox.flushablePartialAggregation",
+        "false")
+    }
+
     // Spark SQL extensions
     val extensions = if (conf.contains(SPARK_SESSION_EXTENSIONS.key)) {
       s"${conf.get(SPARK_SESSION_EXTENSIONS.key)}," +

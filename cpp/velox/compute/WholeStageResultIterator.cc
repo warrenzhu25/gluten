@@ -505,7 +505,7 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
       configs[velox::core::QueryConfig::kAbandonPartialAggregationMinPct] =
           std::to_string(veloxCfg_->get<int32_t>(kAbandonPartialAggregationMinPct, 90));
       configs[velox::core::QueryConfig::kAbandonPartialAggregationMinRows] =
-          std::to_string(veloxCfg_->get<int32_t>(kAbandonPartialAggregationMinRows, 100000));
+          std::to_string(veloxCfg_->get<int32_t>(kAbandonPartialAggregationMinRows, 1000000000));
     }
     // Spill configs
     if (spillStrategy_ == "none") {

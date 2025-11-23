@@ -47,6 +47,7 @@ This comprehensive guide covers Apache Gluten development: adding operators, exp
   - [17.3 Plugin & Component System](#173-plugin--component-system)
   - [17.4 Configuration System](#174-configuration-system)
   - [17.5 Testing Infrastructure](#175-testing-infrastructure)
+- [18. ExecTransformer Complete Reference](#18-exectransformer-complete-reference) *(See separate guide)*
 
 ---
 
@@ -6086,6 +6087,38 @@ def checkFallbackOperators(plan: SparkPlan, num: Int): Unit
 
 ---
 
+## 18. ExecTransformer Complete Reference
+
+**For complete ExecTransformer documentation, see the dedicated guide:**
+
+📖 **[ExecTransformer Complete Reference](ExecTransformerReference.md)**
+
+This comprehensive reference guide provides:
+- ✅ Complete source code for all 50+ ExecTransformer implementations
+- ✅ Line-by-line explanations of validation and transformation logic
+- ✅ Architecture overview and common patterns
+- ✅ Detailed coverage of Unary, Binary, Leaf, and Aggregation transformers
+- ✅ Quick reference table with all transformers and file locations
+- ✅ Backend-specific implementations (Velox, ClickHouse)
+- ✅ Performance optimization strategies
+- ✅ Common issues and solutions
+
+**Key Sections:**
+- **Architecture Overview** - TransformSupport hierarchy, transformation flow, common patterns
+- **Unary Transformers** - Limit, Filter, Project, Sort with complete source code
+- **Binary Transformers** - Join operations (Shuffled, Broadcast, SortMerge)
+- **Aggregation Transformers** - HashAggregate with multi-phase aggregation
+- **Quick Reference** - All 50+ transformers cataloged with file locations
+
+**When to Use:**
+- Implementing a new ExecTransformer
+- Understanding existing transformer logic
+- Looking up specific transformer details
+- Studying backend integration patterns
+- Debugging transformer issues
+
+---
+
 ## Conclusion
 
 This comprehensive guide covers all aspects of Gluten development:
@@ -6103,6 +6136,9 @@ This comprehensive guide covers all aspects of Gluten development:
 8. **Advanced Features** (§16): Shuffle system, file scan optimization, Velox backend, fallback mechanism, data format transitions
 9. **Specialized Topics** (§17): Data source integration, type system, plugin architecture, configuration, testing infrastructure
 
+### ExecTransformer Complete Reference
+10. **Complete Transformer Reference**: See [ExecTransformerReference.md](ExecTransformerReference.md) for all 50+ transformers with full source code, line-by-line explanations, validation logic, transformation patterns, and backend integration
+
 **Development Principles:**
 - Start simple, follow existing patterns
 - Test thoroughly with edge cases
@@ -6110,12 +6146,14 @@ This comprehensive guide covers all aspects of Gluten development:
 - Profile and measure performance
 - Document for future contributors
 - Study component deep dives before modifying core systems
+- Refer to ExecTransformerReference.md for complete transformer documentation
 
 **Quick Navigation:**
 - **Getting Started**: Sections 1-4
 - **Hands-On Examples**: Sections 5-7
 - **Reference Material**: Sections 12-13
 - **Deep Understanding**: Sections 14-17
+- **Complete Transformer Guide**: [ExecTransformerReference.md](ExecTransformerReference.md)
 - **Troubleshooting**: Section 10.5
 - **File Locations**: Section 12.8
 - **Code Templates**: Section 12.10
@@ -6129,6 +6167,9 @@ This comprehensive guide covers all aspects of Gluten development:
 - ✅ Performance tuning guides
 - ✅ Testing strategies
 
+**Additional Resources:**
+- 📖 [ExecTransformerReference.md](ExecTransformerReference.md) - Complete reference for all 50+ ExecTransformers
+
 This guide eliminates 80%+ of code reading time by providing comprehensive documentation of all Gluten components, patterns, and best practices.
 
 Good luck with your contributions to Apache Gluten!
@@ -6140,3 +6181,6 @@ Good luck with your contributions to Apache Gluten!
 **Maintainers:** Apache Gluten Community
 **Total Sections:** 17 (expanded from 13)
 **New Content:** Sections 14-17 with comprehensive component documentation
+
+**Related Guides:**
+- [ExecTransformerReference.md](ExecTransformerReference.md) - Complete reference for all 50+ ExecTransformer implementations

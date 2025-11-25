@@ -1123,12 +1123,19 @@ object GlutenConfig {
       .checkValue(v => v >= 0 && v <= 1, "Shuffle writer merge threshold must between [0, 1]")
       .createWithDefault(0.25)
 
+  /**
+   * Disable Arrow based BufferedInputStream read and use std read because regression seen. After
+   * finish the to do item, we will revisit the default value and wrapper logic in
+   * VeloxHashShuffleReaderDeserializer.
+   *
+   * TODO: b/463726846, investigate why and how this impacts s8s 2.3 performance with NQE.
+   */
   val COLUMNAR_SHUFFLE_READER_BUFFER_SIZE =
     buildConf("spark.gluten.sql.columnar.shuffle.readerBufferSize")
       .internal()
       .doc("Buffer size in bytes for shuffle reader reading input stream from local or remote.")
       .bytesConf(ByteUnit.BYTE)
-      .createWithDefaultString("1MB")
+      .createWithDefaultString("0")
 
   val COLUMNAR_MAX_BATCH_SIZE =
     buildConf("spark.gluten.sql.columnar.maxBatchSize")

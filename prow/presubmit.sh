@@ -7,29 +7,36 @@ echo "Running in " "$(pwd)"
 apt-get update && \
 apt-get -y upgrade && \
 apt-get install -y \
-wget \
-apt-transport-https \
-gpg \
-sudo \
-git \
-vim \
-curl \
-zip \
-unzip \
-tar \
-gcc \
-g++ \
-pkg-config \
-make \
-bison \
-autoconf \
-libtool \
-python3 \
-autoconf-archive \
-flex \
-ninja-build \
-python3-pip \
-ccache
+  wget \
+  apt-transport-https \
+  gpg \
+  sudo \
+  git \
+  vim \
+  curl \
+  zip \
+  unzip \
+  tar \
+  gcc \
+  g++ \
+  pkg-config \
+  make \
+  bison \
+  autoconf \
+  libtool \
+  python3 \
+  autoconf-archive \
+  flex \
+  ninja-build \
+  python3-pip \
+  ccache \
+  gnupg \
+  ca-certificates
+
+# Installing gcloud cli
+curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg
+echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
+apt-get update && apt-get -y install google-cloud-cli
 
 pip3 install cmake==3.28.3 --break-system-packages
 
@@ -40,22 +47,25 @@ apt-get update
 apt-get install -y temurin-11-jdk
 export JAVA_HOME="/usr/lib/jvm/temurin-11-jdk-amd64"
 
-# Build suffle-support
-cd /home/prow/go/src/dataproc/shuffle-support
-./gradlew publishToMavenLocal
-
-# Build spark
-echo "Building Spark..."
-cd /home/prow/go/src/dataproc/third_party/apache/spark
-mkdir -p .mvn && echo "-T1C" >> .mvn/maven.config
-export MAVEN_OPTS="-Xss1g -Xmx20g -XX:MaxMetaspaceSize=10g -XX:ReservedCodeCacheSize=2g -Dsun.zip.disableMemoryMapping=true -DtrimStackTrace=false"
-./build/mvn -DskipTests -Pdataproc-ip-protect-dev clean install
+# Fetch Spark deps
+SPARK_VERSION=3.5.3
+SCALA_VERSION=2.12
+GCS_LOCATION=$(gsutil ls gs://dataproc-performance/spark/${SPARK_VERSION}/scala-${SCALA_VERSION}/ | sort -V | tail -n 1)
+GLUTEN_HOME="/home/prow/go/src/dataproc/third_party/apache/incubator-gluten"
+SPARK_DEPS_DIR="${GLUTEN_HOME}/ep/build-spark/build/spark-deps"
+mkdir -p "${SPARK_DEPS_DIR}/org" "${SPARK_DEPS_DIR}/com" "${SPARK_DEPS_DIR}/jars"
+gsutil -m cp -r "${GCS_LOCATION}org/*" "${SPARK_DEPS_DIR}/org/"
+gsutil -m cp -r "${GCS_LOCATION}com/*" "${SPARK_DEPS_DIR}/com/"
 
 # Build NQE
 cd /home/prow/go/src/dataproc/third_party/apache/incubator-gluten
 mkdir -p .mvn && echo "-T1C" >> .mvn/maven.config
 export MAVEN_OPTS="-Xss1g -Xmx20g -XX:MaxMetaspaceSize=10g -XX:ReservedCodeCacheSize=2g -Dsun.zip.disableMemoryMapping=true -DtrimStackTrace=false"
 ./dev/package.sh --velox_home=/home/prow/go/src/dataproc/third_party/oap-project/velox
+
+# Copy pre-built Spark jars
+mkdir -p "/home/prow/go/src/dataproc/third_party/apache/spark/assembly/target/scala-${SCALA_VERSION}/jars/"
+gsutil -m cp -r "${GCS_LOCATION}jars/*" "/home/prow/go/src/dataproc/third_party/apache/spark/assembly/target/scala-${SCALA_VERSION}/jars/"
 
 # Spark Integration tests
 export SPARK_SCALA_VERSION=2.12

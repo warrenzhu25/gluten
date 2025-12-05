@@ -4,7 +4,7 @@ set -ex
 PATH_TO_CURRENT_DIR=$(dirname $0)
 source "${PATH_TO_CURRENT_DIR}"/jar_util.sh
 
-echo "Running as " "$(whoami)"
+echo "Running as $(whoami)"
 
 download_maven
 

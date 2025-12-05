@@ -10,33 +10,15 @@ function download_maven() {
   export PATH=/tmpfs/src/apache-maven-"${MAVEN_VERSION}"/bin:$PATH
 }
 
-function prepare_spark() {
-  # Build Shuffle Support
-  cd ${BASE_DIR}/shuffle-support
-  ./gradlew publishToMavenLocal
-
-  mkdir -p ${BASE_DIR}/spark-deps/com/google/cloud/bigdataoss/
-  cp -r ~/.m2/repository/com/google/cloud/bigdataoss/shuffle-endpoints ${BASE_DIR}/spark-deps/com/google/cloud/bigdataoss/
-
-  # Download Spark dependencies
-  cd ${BASE_DIR}/spark
-  mvn dependency:resolve -Dmaven.repo.local=${BASE_DIR}/spark-deps
-}
-
 function build_jars() {
   OS_VERSION=$1
   JAVA_VERSION=$2
   SPARK_VERSION=$3
   SCALA_VERSION=$4
 
-  # Install all the necessary dependencies required for the Spark build
-  prepare_spark
-
   chmod 755 "${GLUTEN_DIR}"/tools/dev-env/give-me-jar.sh
   /bin/bash "${GLUTEN_DIR}"/tools/dev-env/give-me-jar.sh -v "${BASE_DIR}"/velox/:/root/incubator-gluten/ep/build-velox/build/velox_ep/ \
-    -v "${BASE_DIR}"/spark/:/root/incubator-gluten/ep/build-spark/build/spark/ \
-    -v "${BASE_DIR}"/spark-deps/:/root/incubator-gluten/ep/build-spark/build/spark-deps/ \
-    -o "${OS_VERSION}" -j "${JAVA_VERSION}" -s "${SPARK_VERSION}" -c "${SCALA_VERSION}" -r
+    -o "${OS_VERSION}" -j "${JAVA_VERSION}" -s "${SPARK_VERSION}" -c "${SCALA_VERSION}"
 }
 
 function upload_jar() {

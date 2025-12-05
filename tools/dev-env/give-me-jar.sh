@@ -6,7 +6,6 @@ os_version="Debian12"
 volumes=()
 java_version="Java17"
 get_velox="OFF"
-get_spark="ON"
 spark_version="3.5.3"
 scala_version="2.12"
 
@@ -19,7 +18,6 @@ while getopts "v:o:j:c:s:dgr" opt; do
     s) spark_version="$OPTARG";;
     d) build_type="Debug";;
     g) get_velox="ON";;
-    r) get_spark="OFF";;
     *) echo "Invalid option: -$OPTARG"; exit 1;;
   esac
 done
@@ -38,10 +36,9 @@ cd "$script_dir"
 # Get Velox
 ./../../ep/build-velox/src/get_velox.sh --get_velox=$get_velox --setup_velox=OFF
 
-# Get Spark
-if [[ "$get_spark" == "ON" ]]; then
-  ./../../ep/build-spark/src/get_spark.sh
-fi
+# Get Spark dependencies
+source ./../../ep/build-spark/src/get_spark.sh
+fetch_spark_deps ${spark_version} ${scala_version}
 
 # Start docker container
 ./host-scripts/run.sh -t "build" -o $os_version -j $java_version $volume_args
@@ -50,4 +47,4 @@ fi
 trap "./host-scripts/remove.sh build-env-$os_version-$java_version" EXIT
 
 ./host-scripts/package.sh "build-env-$os_version-$java_version" ${build_type:+--build_type=$build_type} \
-  ${spark_version:+--spark_version=$spark_version} ${scala_version:+--scala_version=$scala_version} --build_spark=ON
+  ${spark_version:+--spark_version=$spark_version} ${scala_version:+--scala_version=$scala_version}

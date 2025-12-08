@@ -8,6 +8,10 @@ This document outlines the procedures for setting up and managing the developmen
 
 *   Ensure the non-root user has access to docker (go/installdocker)
 
+*   Ensure java version is set to 11
+
+*   Ensure gcloud cli is installed (go/installdocker#gcloud-recommended)
+
 ## Recommended Workflow
 
 For an efficient development and testing process, we recommend the following setup. This separation helps keep your development work isolated from the build and testing process, preventing conflicts and ensuring clean builds.

@@ -17,6 +17,6 @@ function fetch_spark_deps() {
 }
 
 function copy_spark_deps_to_local() {
-  mkdir -p /root/.m2/repository
-  cp -r ${CURRENT_DIR}/../build/spark-deps/* /root/.m2/repository/
+  mkdir -p ${HOME}/.m2/repository
+  cp -r ${CURRENT_DIR}/../build/spark-deps/* ${HOME}/.m2/repository/
 }

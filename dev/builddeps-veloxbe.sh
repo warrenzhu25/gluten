@@ -47,6 +47,7 @@ VELOX_REMOVE_LOCAL_CHANGES=OFF
 VELOX_PARAMETER=""
 GET_VELOX=""
 SETUP_VELOX=""
+GET_SPARK=ON
 BUILD_ARROW=ON
 SPARK_VERSION=3.5.3
 SCALA_VERSION=2.12
@@ -177,6 +178,10 @@ do
         SETUP_VELOX=("${arg#*=}")
         shift # Remove argument name from processing
         ;;
+        --get_spark=*)
+        GET_SPARK=("${arg#*=}")
+        shift # Remove argument name from processing
+        ;;
               *)
         OTHER_ARGUMENTS+=("$1")
         shift # Remove generic argument from processing
@@ -296,8 +301,10 @@ function build_gluten_cpp {
 }
 
 function build_velox_backend {
-  source ${GLUTEN_DIR}/ep/build-spark/src/get_spark.sh
-  copy_spark_deps_to_local
+  if [ $GET_SPARK == "ON" ]; then
+    source ${GLUTEN_DIR}/ep/build-spark/src/get_spark.sh
+    copy_spark_deps_to_local
+  fi
   if [ $BUILD_ARROW == "ON" ]; then
     build_arrow
   fi

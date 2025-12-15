@@ -18,7 +18,7 @@ package org.apache.spark.sql
 
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.config.GlutenConfig
-import org.apache.gluten.execution.{FlushableHashAggregateExecTransformer, HashAggregateExecBaseTransformer}
+import org.apache.gluten.execution.HashAggregateExecBaseTransformer
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
@@ -98,7 +98,7 @@ class GlutenBloomFilterAggregateQuerySuite
         case o: ObjectHashAggregateExec => o
       }.size == 2)
       assert(collectWithSubqueries(df.queryExecution.executedPlan) {
-        case o: FlushableHashAggregateExecTransformer => o
+        case o: HashAggregateExecBaseTransformer => o
       }.size == 2)
     }
   }

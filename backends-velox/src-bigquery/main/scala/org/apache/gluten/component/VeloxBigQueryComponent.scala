@@ -20,8 +20,11 @@ package org.apache.gluten.component
 import org.apache.gluten.backendsapi.velox.VeloxBackend
 import org.apache.gluten.extension.BigQueryPreTransformRules
 import org.apache.gluten.extension.injector.Injector
+import org.apache.spark.internal.Logging
 
-class VeloxBigQueryComponent extends Component {
+import scala.util.Try
+
+class VeloxBigQueryComponent extends Component with Logging {
   /** Base information. */
   override def name(): String = "velox-bigquery"
 
@@ -31,12 +34,20 @@ class VeloxBigQueryComponent extends Component {
 
   /** Query planner rules. */
   override def injectRules(injector: Injector): Unit = {
-    val legacy = injector.gluten.legacy
-    val ras = injector.gluten.ras
-    BigQueryPreTransformRules.rules.foreach {
-      r =>
-        legacy.injectPreTransform(_ => r)
-        ras.injectPreTransform(_ => r)
+    val bigQueryClassName = "com.google.cloud.spark.bigquery.v2.Spark31BigQueryScanBuilder"
+    val isBigQueryAvailable = Try(Class.forName(bigQueryClassName)).isSuccess
+
+    if (isBigQueryAvailable) {
+      val legacy = injector.gluten.legacy
+      val ras = injector.gluten.ras
+      BigQueryPreTransformRules.rules.foreach {
+        r =>
+          legacy.injectPreTransform(_ => r)
+          ras.injectPreTransform(_ => r)
+      }
+    } else {
+      logWarning(s"BigQuery connector class '$bigQueryClassName' not found. " +
+        "VeloxBigQueryComponent rules will not be injected.")
     }
   }
 }

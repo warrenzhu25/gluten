@@ -73,7 +73,11 @@ private object Discovery extends Logging {
                 throw new GlutenException(s"Component class not found: $className", e)
             }
           val instance = clazz.getDeclaredConstructor().newInstance().asInstanceOf[Component]
-          Some(instance)
+          if (instance.shouldLoad()) {
+            Some(instance)
+          } else {
+            None
+          }
         }
       case _ => None
     }.toSeq

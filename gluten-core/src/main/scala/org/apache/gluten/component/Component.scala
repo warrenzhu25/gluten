@@ -43,6 +43,11 @@ trait Component {
   private val isRegistered = new AtomicBoolean(false)
 
   def ensureRegistered(): Unit = {
+    // Don't register if shouldLoad() is set to false
+    if (!shouldLoad()) {
+      return
+    }
+
     if (!isRegistered.compareAndSet(false, true)) {
       return
     }
@@ -60,6 +65,9 @@ trait Component {
   def onDriverShutdown(): Unit = {}
   def onExecutorStart(pc: PluginContext): Unit = {}
   def onExecutorShutdown(): Unit = {}
+
+  /** Pre-conditions if any before activating the component should go here */
+  def shouldLoad(): Boolean = true
 
   /**
    * Overrides [[org.apache.gluten.extension.columnar.transition.ConventionFunc]] Gluten is using to

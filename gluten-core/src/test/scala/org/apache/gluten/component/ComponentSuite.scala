@@ -53,6 +53,12 @@ class ComponentSuite extends AnyFunSuite with BeforeAndAfterAll {
       new DummyBackendA().ensureRegistered()
     }
   }
+
+  test("Skip loading when shouldLoad is false") {
+    val f = new DummyComponentF()
+    f.ensureRegistered()
+    assert(!Component.sorted().contains(f))
+  }
 }
 
 object ComponentSuite {
@@ -96,6 +102,15 @@ object ComponentSuite {
     override def name(): String = "dummy-component-e"
     override def buildInfo(): Component.BuildInfo =
       Component.BuildInfo("DUMMY_COMPONENT_E", "N/A", "N/A", "N/A")
+    override def injectRules(injector: Injector): Unit = {}
+  }
+
+  private class DummyComponentF extends Component {
+    override def shouldLoad(): Boolean = false
+    override def dependencies(): Seq[Class[_ <: Component]] = Nil
+    override def name(): String = "dummy-component-f"
+    override def buildInfo(): Component.BuildInfo =
+      Component.BuildInfo("DUMMY_COMPONENT_F", "N/A", "N/A", "N/A")
     override def injectRules(injector: Injector): Unit = {}
   }
 }

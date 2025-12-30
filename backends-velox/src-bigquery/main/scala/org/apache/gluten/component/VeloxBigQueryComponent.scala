@@ -32,22 +32,25 @@ class VeloxBigQueryComponent extends Component with Logging {
 
   override def dependencies(): Seq[Class[_ <: Component]] = classOf[VeloxBackend] :: Nil
 
-  /** Query planner rules. */
-  override def injectRules(injector: Injector): Unit = {
+  override def shouldLoad(): Boolean = {
     val bigQueryClassName = "com.google.cloud.spark.bigquery.v2.Spark31BigQueryScanBuilder"
     val isBigQueryAvailable = Try(Class.forName(bigQueryClassName)).isSuccess
 
-    if (isBigQueryAvailable) {
-      val legacy = injector.gluten.legacy
-      val ras = injector.gluten.ras
-      BigQueryPreTransformRules.rules.foreach {
-        r =>
-          legacy.injectPreTransform(_ => r)
-          ras.injectPreTransform(_ => r)
-      }
-    } else {
+    if(!isBigQueryAvailable) {
       logWarning(s"BigQuery connector class '$bigQueryClassName' not found. " +
         "VeloxBigQueryComponent rules will not be injected.")
+    }
+    isBigQueryAvailable
+  }
+
+  /** Query planner rules. */
+  override def injectRules(injector: Injector): Unit = {
+    val legacy = injector.gluten.legacy
+    val ras = injector.gluten.ras
+    BigQueryPreTransformRules.rules.foreach {
+      r =>
+        legacy.injectPreTransform(_ => r)
+        ras.injectPreTransform(_ => r)
     }
   }
 }

@@ -983,7 +983,7 @@ object GlutenConfig {
       .doc("Config for flushablePartialAggregation Dataproc: Disables" +
         " Expand/Generate and enables Flushable Aggregation.")
       .booleanConf
-      .createWithDefault(true)
+      .createWithDefault(false)
 
   val COLUMNAR_EXPAND_ENABLED =
     buildConf("spark.gluten.sql.columnar.expand")

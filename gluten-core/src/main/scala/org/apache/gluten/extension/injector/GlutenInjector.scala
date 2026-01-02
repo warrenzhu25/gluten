@@ -67,7 +67,7 @@ object GlutenInjector {
     }
 
     def getPreTransformRules(c: ColumnarRuleCall): Seq[Rule[SparkPlan]] = {
-      preTransformBuilders.map(_.apply(c))
+      preTransformBuilders.map(_.apply(c)).toSeq
     }
 
     def injectTransform(builder: ColumnarRuleCall => Rule[SparkPlan]): Unit = {

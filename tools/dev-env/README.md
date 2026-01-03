@@ -144,3 +144,50 @@ PROMPT_ALWAYS_RESPOND=Y ./scripts/setup-adapters.sh gcs
 ```
 2. Make sure `Cmake` version is set to `3.28.3` in `Settings -> Build, Execution, Deployment -> Toolchains`
 3. Also, add these configs `-DVELOX_ENABLE_PARQUET=ON -DVELOX_BUILD_TESTING=ON -DVELOX_ENABLE_GCS=ON -DCMAKE_BUILD_TYPE=Debug -DCMAKE_PREFIX_PATH=/path/to/deps-download-folder-in-velox` to CMake options and click Apply.
+
+
+## FAQ
+#### 1. The Docker container is stopped (but still existing). I want to re-run my Dev environment and re-launch IDEs.
+```
+./start.sh
+```
+#### 2. The Docker container is removed. I want to re-run my Dev environment and re-launch IDEs without reruning the entire ./give-me-dev-env.sh.
+Note: you can follow the same steps if you are changing to a new Cloudtop, or you want to re-use the Dev environment shared by other persons.
+
+Step 1: Get the Docker image ID and rerun it.
+```
+# get the docker image ID, e.g. 89369a174d99
+docker image ls
+
+# go to incubator-gluten project root directory
+
+# run the docker image, and give it an arbitary container name, e.g. gluten-dev
+docker run -d --name gluten-dev \
+  -e DISPLAY=$DISPLAY \
+  -v /tmp/.X11-unix:/tmp/.X11-unix \
+  -v "$(pwd)":/opt/gluten \
+  --net=host \
+  89369a174d99
+```
+
+If the container name, e.g. gluten-dev is being used, and you really want to remove it, run
+```
+docker rm -f gluten-dev 2>/dev/null
+```
+
+[Troubleshooting only] Step 2: make sure your xhost is set up correctly
+```
+xhost +local:
+# you should have the output below
+# non-network local connections being added to access control list
+```
+
+Step 3: launch the IDEs, e.g. IntelliJ
+```
+docker exec -d \
+  -e DISPLAY=$DISPLAY \
+  -e QT_X11_NO_MITSHM=1 \
+  -e _JAVA_AWT_WM_NONREPARENTING=1 \
+  gluten-dev /opt/idea/bin/idea.sh
+```
+When IntelliJ opens, select Open and navigate to /opt/gluten (the internal mount point) to load the project.

@@ -61,7 +61,7 @@ gsutil -m cp -r "${GCS_LOCATION}com/*" "${SPARK_DEPS_DIR}/com/"
 cd /home/prow/go/src/dataproc/third_party/apache/incubator-gluten
 mkdir -p .mvn && echo "-T1C" >> .mvn/maven.config
 export MAVEN_OPTS="-Xss1g -Xmx20g -XX:MaxMetaspaceSize=10g -XX:ReservedCodeCacheSize=2g -Dsun.zip.disableMemoryMapping=true -DtrimStackTrace=false"
-./dev/package.sh --velox_home=/home/prow/go/src/dataproc/third_party/oap-project/velox
+./dev/package.sh --build_tests=ON --velox_home=/home/prow/go/src/dataproc/third_party/oap-project/velox
 
 # Copy pre-built Spark jars
 mkdir -p "/home/prow/go/src/dataproc/third_party/apache/spark/assembly/target/scala-${SCALA_VERSION}/jars/"

@@ -16,8 +16,8 @@
  */
 package org.apache.spark.shuffle
 
-import org.apache.gluten.config.ReservedKeys.{GLUTEN_RSS_SORT_SHUFFLE_WRITER, GLUTEN_SORT_SHUFFLE_WRITER}
 import org.apache.gluten.backendsapi.BackendsApiManager
+import org.apache.gluten.config.{GlutenConfig, ShuffleWriterType}
 import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators
 import org.apache.gluten.runtime.Runtimes
 import org.apache.gluten.utils.ArrowAbiUtil
@@ -37,7 +37,6 @@ import org.apache.spark.task.{TaskResource, TaskResources}
 import org.apache.arrow.c.ArrowSchema
 import org.apache.arrow.memory.BufferAllocator
 import org.apache.celeborn.client.read.CelebornInputStream
-import org.apache.gluten.config.GlutenConfig
 
 import java.io._
 import java.nio.ByteBuffer
@@ -49,20 +48,26 @@ import scala.reflect.ClassTag
 class CelebornColumnarBatchSerializer(
     schema: StructType,
     readBatchNumRows: SQLMetric,
-    numOutputRows: SQLMetric)
+    numOutputRows: SQLMetric,
+    shuffleWriterType: ShuffleWriterType)
   extends Serializer
   with Serializable {
 
   /** Creates a new [[SerializerInstance]]. */
   override def newInstance(): SerializerInstance = {
-    new CelebornColumnarBatchSerializerInstance(schema, readBatchNumRows, numOutputRows)
+    new CelebornColumnarBatchSerializerInstance(
+      schema,
+      readBatchNumRows,
+      numOutputRows,
+      shuffleWriterType)
   }
 }
 
 private class CelebornColumnarBatchSerializerInstance(
     schema: StructType,
     readBatchNumRows: SQLMetric,
-    numOutputRows: SQLMetric)
+    numOutputRows: SQLMetric,
+    shuffleWriterType: ShuffleWriterType)
   extends SerializerInstance
   with Logging {
 
@@ -86,8 +91,6 @@ private class CelebornColumnarBatchSerializerInstance(
       }
     val compressionCodecBackend =
       GlutenConfig.get.columnarShuffleCodecBackend.orNull
-    val shuffleWriterType = GlutenConfig.get.celebornShuffleWriterType
-      .replace(GLUTEN_SORT_SHUFFLE_WRITER, GLUTEN_RSS_SORT_SHUFFLE_WRITER)
     val jniWrapper = ShuffleReaderJniWrapper.create(runtime)
     val batchSize = GlutenConfig.get.maxBatchSize
     val readerBufferSize = GlutenConfig.get.columnarShuffleReaderBufferSize
@@ -100,7 +103,7 @@ private class CelebornColumnarBatchSerializerInstance(
         batchSize,
         readerBufferSize,
         deserializerBufferSize,
-        shuffleWriterType
+        shuffleWriterType.name
       )
     // Close shuffle reader instance as lately as the end of task processing,
     // since the native reader could hold a reference to memory pool that
@@ -122,12 +125,9 @@ private class CelebornColumnarBatchSerializerInstance(
   private class TaskDeserializationStream(in: InputStream)
     extends DeserializationStream
     with TaskResource {
-    private val byteIn: JniByteInputStream = JniByteInputStreams.create(in)
-    private val wrappedOut: ColumnarBatchOutIterator = new ColumnarBatchOutIterator(
-      runtime,
-      ShuffleReaderJniWrapper
-        .create(runtime)
-        .readStream(shuffleReaderHandle, byteIn))
+    private val streamReader = ShuffleStreamReader(Iterator((null, in)))
+
+    private var wrappedOut: ColumnarBatchOutIterator = _
 
     private var cb: ColumnarBatch = _
 
@@ -193,6 +193,7 @@ private class CelebornColumnarBatchSerializerInstance(
 
     @throws(classOf[EOFException])
     override def readValue[T: ClassTag](): T = {
+      initStream();
       if (cb != null) {
         cb.close()
         cb = null
@@ -247,10 +248,22 @@ private class CelebornColumnarBatchSerializerInstance(
         readBatchNumRows.set(numRowsTotal.toDouble / numBatchesTotal)
       }
       numOutputRows += numRowsTotal
-      wrappedOut.close()
-      byteIn.close()
+      if (wrappedOut != null) {
+        wrappedOut.close()
+      }
+      streamReader.close()
       if (cb != null) {
         cb.close()
+      }
+    }
+
+    private def initStream(): Unit = {
+      if (wrappedOut == null) {
+        wrappedOut = new ColumnarBatchOutIterator(
+          runtime,
+          ShuffleReaderJniWrapper
+            .create(runtime)
+            .read(shuffleReaderHandle, streamReader))
       }
     }
 

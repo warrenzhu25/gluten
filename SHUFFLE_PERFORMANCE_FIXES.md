@@ -118,22 +118,19 @@ spark.gluten.sql.columnar.shuffle.readerBufferSize=1048576  # 1MB
 
 ---
 
-## Part 2: Reducing Shuffle File Size (Shuffle Write)
+## Part 2: Reducing Shuffle Write Time (and File Size)
 
 ### The Problem
 
-Large shuffle files cause multiple issues:
-- Higher disk I/O and network transfer costs
-- Slower shuffle write times
-- Storage pressure on executors
+Shuffle write was slow due to inefficiencies in both compression and I/O:
 
-**Three inefficiencies existed:**
+1. **Block-based compression overhead**: Each fixed-size chunk (64KB) was compressed independently. The compressor was created/destroyed per block, incurring CPU overhead for initialization and losing cross-block compression state (dictionary). This meant more CPU time compressing and larger output (more bytes to write).
 
-1. **Block-based compression**: Data was divided into fixed chunks, and each chunk was compressed independently, losing compression opportunities across chunk boundaries
+2. **Wrong buffer size for disk I/O**: A single configuration (`sortEvictBufferSize`) controlled both the compression buffer and the disk write buffer. Since compression works best with small buffers (~32KB) and disk I/O works best with large buffers (~1MB), no single value was optimal. In practice, the buffer was too small for efficient disk writes, causing excessive `write()` syscalls.
 
-2. **Wrong buffer size for disk I/O**: A single configuration controlled both compression buffers and disk write buffers, leading to suboptimal sizing (too small for efficient disk writes)
+3. **A correctness bug**: Fixed-width columns could trigger segfaults in the compression code.
 
-3. **A correctness bug**: Fixed-width columns could trigger segfaults in the compression code
+**Why these issues compound:** In sort-based shuffle, rows are sorted by partition then written sequentially. With block compression, the compressor couldn't exploit the natural data locality within a partition. With undersized disk buffers, each small compressed block triggered its own syscall. The result was both more CPU time (compression) and more kernel time (syscalls) than necessary.
 
 ### Solution 1: GLUTEN-9163 Part 1 - Stream-Based Compression
 
@@ -166,15 +163,16 @@ Benefit: The compressor can reference patterns from earlier
 in the stream, and there's no restart overhead.
 ```
 
-**Why This Improves Performance:**
+**Why This Reduces Write Time:**
 
-**Smaller shuffle files:**
-- For repeated strings (like "United States", "New York", etc.), the compressor builds a dictionary once and references it throughout the stream
-- For time-series data, sequential patterns are exploited across the full dataset
-- Better compression ratios, especially for data with repeated patterns
+Write time drops for two reasons:
+
+1. **Less CPU time on compression**: The old approach created and destroyed a compressor for every 64KB block. Each creation reinitializes internal state (hash tables, dictionaries). With stream compression, the compressor is created once per partition and reused across all data. Since sort-based shuffle groups rows by partition, the compressor's dictionary accumulates patterns (repeated strings, similar numeric ranges) that make subsequent compression faster and produce smaller output.
+
+2. **Less data to write to disk**: Better compression ratios mean fewer bytes hit the disk. For data with repeated patterns (strings, categorical columns), stream compression can achieve significantly better ratios since the dictionary carries across the entire partition rather than resetting every 64KB.
 
 **Example:**
-If you're shuffling user data with country codes, the old approach would re-encode "United States" in every 64KB block. The new approach encodes it once in the compressor's dictionary and uses cheap references thereafter.
+If you're shuffling user data with country codes, the old approach would re-encode "United States" in every 64KB block. The new approach encodes it once in the compressor's dictionary and uses cheap references thereafter — less CPU work and smaller output.
 
 ---
 
@@ -205,21 +203,21 @@ spark.gluten.sql.columnar.shuffle.compressionBufferSize=32KB
 spark.shuffle.spill.diskWriteBufferSize=1MB  # Matches Spark default
 ```
 
-**Why This Improves Performance:**
+**Why This Reduces Write Time:**
 
-**Better compression:**
+The key insight is that the old single buffer forced a tradeoff between compression efficiency and disk I/O efficiency. Separating them allows each to use its optimal size:
+
+**Fewer syscalls with 1MB disk write buffer:**
+- Writing 1GB with a 32KB buffer = 32,768 `write()` syscalls (~164ms of kernel overhead)
+- Writing 1GB with a 1MB buffer = 1,024 `write()` syscalls (~5ms of kernel overhead)
+- This is a 32x reduction in syscall overhead
+
+**Better compression with 32KB compression buffer:**
 - LZ4 uses 64KB block size internally; 32KB aligns well
 - ZSTD works best with 32-128KB windows for shuffle workloads
+- Smaller compression buffer means the stream compressor flushes more frequently, keeping memory usage low without sacrificing compression quality
 
-**Faster disk writes:**
-- Writing 1GB with a 32KB buffer = 32,768 write() system calls
-- Writing 1GB with a 1MB buffer = 1,024 write() system calls
-- Each syscall has ~5µs overhead
-- Result: ~30x fewer syscalls, significantly less overhead
-
-**Why These Sizes:**
-- **32KB for compression**: Matches compression algorithm internals without wasting memory
-- **1MB for disk I/O**: Matches Spark's default and is efficient for sequential writes
+**Combined effect on write time:** The sort shuffle writer (`VeloxSortShuffleWriter`) copies sorted rows into the 1MB `diskWriteBuffer`, then feeds them through the `ShuffleCompressedOutputStream` (which uses its own 32KB internal buffer). The result is efficient compression with infrequent disk writes — both the CPU path and the I/O path are optimized independently.
 
 ---
 
@@ -247,6 +245,36 @@ The code was adding extra bytes to the calculated row size, causing buffer overr
 **Impact:**
 
 This is a **correctness fix**, not a performance optimization. However, it's required for the stream compression changes to work reliably with all Spark data types.
+
+---
+
+## Shuffle Write Pipeline (After Fixes)
+
+The following diagram shows how data flows through the optimized write path:
+
+```
+VeloxSortShuffleWriter
+  |
+  | 1. Sort all rows by partition ID (radix sort)
+  |    [PID 0, row A][PID 0, row B][PID 1, row C][PID 1, row D]...
+  v
+  | 2. For each partition, copy rows into diskWriteBuffer (1MB)
+  |    - Batches rows to reduce downstream write frequency
+  |    - Flushes buffer when full via evictPartitionInternal()
+  v
+LocalPartitionWriter::LocalSpiller
+  |
+  | 3. ShuffleCompressedOutputStream (stream compressor, 32KB internal buffer)
+  |    - Compressor state persists across all rows in a partition
+  |    - Dictionary builds up: repeated values get cheap back-references
+  |    - On partition change: Flush() finalizes compression, resets compressor
+  v
+  | 4. write() to spill file (already batched by 1MB buffer above)
+  v
+Disk
+```
+
+**Before the fixes:** Each 64KB block got a fresh compressor (losing dictionary state), and the same undersized buffer served both compression and disk I/O. Now each concern has its own optimally-sized buffer, and the compressor maintains state across the full partition.
 
 ---
 
@@ -422,6 +450,148 @@ git log --oneline | grep "GLUTEN-9163"
 3. ✅ **Test on representative workload** to understand impact
 4. ✅ **Monitor Spark UI metrics** to verify improvements
 5. ✅ **Profile before tuning** buffer sizes (defaults are good for most cases)
+
+---
+
+## Minimal Change Guide
+
+This section identifies the 3 key performance changes, the exact files and code paths involved, and how to apply them independently with minimal risk.
+
+### Overview: Risk vs. Benefit
+
+| # | Change | Risk | Benefit | Independent? |
+|---|--------|------|---------|-------------|
+| 1 | Stream compression (write) | Medium — new class, changes spill path | Smaller shuffle files + faster writes | Yes |
+| 2 | Buffer separation (write) | Low — config split only | 32x fewer `write()` syscalls | Yes |
+| 3 | Disable reader buffer (read) | Very low — 16-line change | Eliminates redundant 1MB copy | Yes |
+
+All three changes can be applied independently. Change 2 builds on the code from Change 1 but works without it (it just splits the config). The segfault fix (commit `31d53c930`) is required if you apply Change 1.
+
+---
+
+### Change 1: Stream Compression Instead of Block Compression
+
+**Files to modify:**
+- `cpp/core/shuffle/Utils.h` — add `ShuffleCompressedOutputStream` class
+- `cpp/core/shuffle/LocalPartitionWriter.cc` — `LocalSpiller` uses `compressedOs_` instead of `toBlockPayload`
+- `cpp/core/shuffle/Payload.cc` — `InMemoryPayload::serialize()` writes raw buffers to output stream
+
+**Old code path (sort shuffle write):**
+```
+VeloxSortShuffleWriter::evictPartitionInternal()
+  → InMemoryPayload::toBlockPayload(kCompressed, codec)  // block compress each buffer
+    → BlockPayload::fromBuffers() → codec->Compress() per buffer
+  → LocalSpiller::spill(BlockPayload)
+    → BlockPayload::serialize(os)  // write compressed blocks
+```
+
+**New code path:**
+```
+VeloxSortShuffleWriter::evictPartitionInternal()
+  → LocalSpiller::spill(InMemoryPayload)
+    → InMemoryPayload::serialize(compressedOs)  // raw write into stream compressor
+      → ShuffleCompressedOutputStream::Write()  // compressor maintains dictionary
+```
+
+**Key code pattern — `ShuffleCompressedOutputStream` (new class in `Utils.h`):**
+```cpp
+// Wraps an output stream with a stateful stream compressor.
+// Created once per partition via codec->MakeCompressor().
+// The compressor's dictionary persists across all data in the partition,
+// achieving better ratios than per-block codec->Compress().
+class ShuffleCompressedOutputStream {
+  // Write() feeds raw data to the stream compressor
+  // Flush() finalizes the compressed stream on partition boundary
+};
+```
+
+**Key code pattern — `LocalSpiller` (in `LocalPartitionWriter.cc`):**
+```cpp
+// OLD: spill took BlockPayload (already compressed per-block)
+void LocalSpiller::spill(std::unique_ptr<BlockPayload> payload);
+
+// NEW: spill takes InMemoryPayload, writes through compressedOs_
+void LocalSpiller::spill(std::unique_ptr<InMemoryPayload> payload);
+// Inside: payload->serialize(compressedOs_) writes raw buffers
+// compressedOs_ handles compression transparently
+```
+
+**Key code pattern — `InMemoryPayload::serialize()` (in `Payload.cc`):**
+```cpp
+// OLD: serialize() was not used for compressed writes (returned error)
+// NEW: serialize(os) writes raw buffers to the output stream
+//      The stream itself handles compression when wrapped with
+//      ShuffleCompressedOutputStream
+```
+
+**Required companion fix:** Commit `31d53c930` fixes a segfault with fixed-width inputs — apply it whenever you apply this change.
+
+---
+
+### Change 2: Separate Disk Write Buffer from Compression Buffer
+
+**Files to modify:**
+- `cpp/core/shuffle/Options.h` — add `diskWriteBufferSize` (1MB) and `compressionBufferSize` (32KB) fields, replacing `sortEvictBufferSize`
+- `cpp/velox/shuffle/VeloxSortShuffleWriter.cc` — use `diskWriteBufferSize` for the sorted buffer, remove `compressionBuffer_`
+
+**Key code pattern — `Options.h`:**
+```cpp
+// OLD: single buffer for both
+int64_t sortEvictBufferSize;
+
+// NEW: separate buffers
+int64_t diskWriteBufferSize = 1048576;      // 1MB — for write() syscalls
+int64_t compressionBufferSize = 32768;       // 32KB — for compressor input
+```
+
+**Key code pattern — `VeloxSortShuffleWriter.cc`:**
+```cpp
+// OLD: used sortEvictBufferSize for the sorted data buffer
+// and maintained a separate compressionBuffer_ for compression
+
+// NEW: uses diskWriteBufferSize (1MB) for the sorted data buffer
+// compressionBuffer_ removed — compression buffering is handled
+// internally by ShuffleCompressedOutputStream (32KB)
+```
+
+**Why 1MB matters:** Writing 1GB with 32KB buffer = 32,768 syscalls. With 1MB buffer = 1,024 syscalls. That's 32x fewer kernel crossings.
+
+---
+
+### Change 3: Disable Reader Buffer (Double-Buffering)
+
+**Files to modify:**
+- `cpp/velox/shuffle/VeloxShuffleReader.cc` — conditionally skip `BufferedInputStream` wrapper
+
+**Key code pattern:**
+```cpp
+// OLD: always wrapped with BufferedInputStream
+auto bufferedStream = arrow::io::BufferedInputStream::Create(
+    bufferSize, pool, std::move(inputStream));
+
+// NEW: conditional based on readerBufferSize config
+if (readerBufferSize > 0) {
+  // wrap with BufferedInputStream (opt-in)
+  stream = arrow::io::BufferedInputStream::Create(...);
+} else {
+  // use raw stream directly (default)
+  stream = std::move(inputStream);
+}
+```
+
+**Why this helps:** The OS page cache already buffers sequential reads. The extra 1MB `BufferedInputStream` just adds a redundant memcpy. Disabling it eliminates one full copy of all shuffle data.
+
+**Config:** `spark.gluten.sql.columnar.shuffle.readerBufferSize=0` (default after this change).
+
+---
+
+### Recommended Application Order
+
+1. **Change 3 (disable reader buffer)** — Very low risk, immediate benefit, single file
+2. **Change 2 (buffer separation)** — Low risk, config-only change, two files
+3. **Change 1 (stream compression)** — Medium risk, largest benefit, three files + segfault fix
+
+Apply Change 3 first to get an easy win. Change 2 is straightforward config splitting. Change 1 delivers the biggest improvement but touches the most code — test thoroughly with representative workloads.
 
 ---
 

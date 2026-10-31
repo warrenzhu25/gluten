@@ -66,8 +66,12 @@ The two batch layouts, and how to convert between them.
 ```java
 private static BatchType identifyBatchType(ColumnarBatch batch) {
   if (batch.numCols() == 0) return BatchType.ZERO_COLUMN;
-  if (batch.column(0) instanceof IndicatorVector) { /* others must be PlaceholderVector */ return BatchType.LIGHT; }
-  /* all columns must be ArrowWritableColumnVector */ return BatchType.HEAVY;
+  if (batch.column(0) instanceof IndicatorVector) {
+    // the other columns must be PlaceholderVector
+    return BatchType.LIGHT;
+  }
+  // all columns must be ArrowWritableColumnVector
+  return BatchType.HEAVY;
 }
 ```
 
@@ -106,15 +110,18 @@ Registration happens at startup in `VeloxListenerApi.initialize` (`ensureRegiste
 ```scala
 override def apply(plan: SparkPlan): SparkPlan = {
   val removed = RemoveTransitions.apply(plan)
-  val filled = fillWithTransitions(removed)             // per node: child convention vs. required convention
-  Transitions.enforceReq(filled, convReq)               // root requirement (rows, or Velox batch if caching)
+  // per node: child convention vs. required convention
+  val filled = fillWithTransitions(removed)
+  // root requirement (rows, or Velox batch if caching)
+  Transitions.enforceReq(filled, convReq)
 }
 private def applyForNode(node: SparkPlan): SparkPlan = {
   val convReqs = convFunc.conventionReqOf(node)
   val newChildren = node.children.zip(convReqs).map { case (child, req) =>
     val from = convFunc.conventionOf(child)
     if (from.isNone) child
-    else Transition.factory.findTransitionOrThrow(from, req)(Transition.notFound(node)).apply(child)
+    else Transition.factory.findTransitionOrThrow(from,
+        req)(Transition.notFound(node)).apply(child)
   }
   node.withNewChildren(newChildren)
 }
@@ -140,10 +147,13 @@ private val c2rId = jniWrapper.nativeColumnarToRowInit()
 ...
 override def next(): InternalRow = {
   if (rowId == 0 || rowId == baseLength + info.lengths.length) {
-    info = jniWrapper.nativeColumnarToRowConvert(c2rId, batchHandle, rowId)   // convert next chunk natively
+    // convert next chunk natively
+    info = jniWrapper.nativeColumnarToRowConvert(c2rId, batchHandle, rowId)
   }
-  val (offset, length) = (info.offsets(rowId - baseLength), info.lengths(rowId - baseLength))
-  row.pointTo(null, info.memoryAddress + offset, length)                     // zero-copy UnsafeRow view
+  val (offset, length) = (info.offsets(rowId - baseLength),
+      info.lengths(rowId - baseLength))
+  // zero-copy UnsafeRow view
+  row.pointTo(null, info.memoryAddress + offset, length)
   rowId += 1
   row
 }
@@ -210,9 +220,12 @@ VeloxColumnarToRow
          +- ^ ProjectExecTransformer
             +- ^ FlushableHashAggregateExecTransformer
                +- ^ InputIteratorTransformer
-                  +- RowToVeloxColumnar                 <- transition #2 (rows -> native)
-                     +- Project [UDF(name) AS r, id]     <- vanilla Spark (fell back)
-                        +- VeloxColumnarToRow            <- transition #1 (native -> rows)
+                  # transition #2 (rows -> native)
+                  +- RowToVeloxColumnar
+                     # vanilla Spark (fell back)
+                     +- Project [UDF(name) AS r, id]
+                        # transition #1 (native -> rows)
+                        +- VeloxColumnarToRow
                            +- ^ FilterExecTransformer
                               +- ^ FileSourceScanExecTransformer parquet
 ```
@@ -238,7 +251,8 @@ Cost: two full data conversions and an extra stage boundary (`InputIteratorTrans
 
 ```scala
 val plan = df.queryExecution.executedPlan
-plan.collect { case p if p.nodeName.contains("ColumnarToRow") || p.nodeName.contains("RowToVeloxColumnar") => p.nodeName }
+plan.collect { case p if p.nodeName.contains("ColumnarToRow") ||
+    p.nodeName.contains("RowToVeloxColumnar") => p.nodeName }
 ```
 
 - In the healthy case, the only transition is the final `VeloxColumnarToRow`. Each extra pair marks a fallback in the middle of a pipeline.

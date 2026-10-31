@@ -106,13 +106,18 @@ From [GlutenPlugin.scala](../../gluten-core/src/main/scala/org/apache/gluten/Glu
 #### Executor: `GlutenExecutorPlugin`
 
 ```scala
-override def init(ctx: PluginContext, extraConf: util.Map[String, String]): Unit = {
-  CodedInputStreamClassInitializer.modifyDefaultRecursionLimitUnsafe   // deep Substrait plans
+override def init(ctx: PluginContext, extraConf: util.Map[String,
+    String]): Unit = {
+  // deep Substrait plans
+  CodedInputStreamClassInitializer.modifyDefaultRecursionLimitUnsafe
   Component.sorted().foreach(_.onExecutorStart(ctx))
 }
-override def onTaskStart(): Unit = taskListeners.foreach(_.onTaskStart())          // TaskResources
-override def onTaskSucceeded(): Unit = taskListeners.reverse.foreach(_.onTaskSucceeded())
-override def onTaskFailed(r: TaskFailedReason): Unit = taskListeners.reverse.foreach(_.onTaskFailed(r))
+// TaskResources
+override def onTaskStart(): Unit = taskListeners.foreach(_.onTaskStart())
+override def onTaskSucceeded(): Unit =
+    taskListeners.reverse.foreach(_.onTaskSucceeded())
+override def onTaskFailed(r: TaskFailedReason): Unit =
+    taskListeners.reverse.foreach(_.onTaskFailed(r))
 ```
 
 - The protobuf recursion limit is raised because a complex query can produce a deeply nested Substrait plan.
@@ -125,13 +130,20 @@ override def onTaskFailed(r: TaskFailedReason): Unit = taskListeners.reverse.for
 A component is declared by an **empty resource file whose name is the class name**:
 
 ```text
-backends-velox/src/main/resources/META-INF/gluten-components/org.apache.gluten.backendsapi.velox.VeloxBackend
-backends-velox/src-iceberg/main/resources/META-INF/gluten-components/org.apache.gluten.component.VeloxIcebergComponent
-backends-velox/src-delta/main/resources/META-INF/gluten-components/org.apache.gluten.component.VeloxDeltaComponent
-backends-velox/src-hudi/.../org.apache.gluten.component.VeloxHudiComponent
-backends-velox/src-paimon/.../org.apache.gluten.component.VeloxPaimonComponent
-backends-velox/src-delta33/.../org.apache.gluten.component.VeloxDelta33WriteComponent
-backends-velox/src-delta40/.../org.apache.gluten.component.VeloxDelta40WriteComponent
+backends-velox/src/main/resources/META-INF/gluten-components/
+  org.apache.gluten.backendsapi.velox.VeloxBackend
+backends-velox/src-iceberg/main/resources/META-INF/gluten-components/
+  org.apache.gluten.component.VeloxIcebergComponent
+backends-velox/src-delta/main/resources/META-INF/gluten-components/
+  org.apache.gluten.component.VeloxDeltaComponent
+backends-velox/src-hudi/.../
+  org.apache.gluten.component.VeloxHudiComponent
+backends-velox/src-paimon/.../
+  org.apache.gluten.component.VeloxPaimonComponent
+backends-velox/src-delta33/.../
+  org.apache.gluten.component.VeloxDelta33WriteComponent
+backends-velox/src-delta40/.../
+  org.apache.gluten.component.VeloxDelta40WriteComponent
 ```
 
 `Discovery.discoverAll()` lists all `META-INF/gluten-components/*` resources, de-duplicates by class name, and instantiates each with its no-arg constructor. Which components exist therefore depends on **which Maven profiles were used to build the bundle** (e.g. `-Piceberg`).
@@ -149,9 +161,11 @@ Components registered within order: velox, velox-iceberg, velox-delta, ...
 ```scala
 class VeloxIcebergComponent extends Component {
   override def name(): String = "velox-iceberg"
-  override def dependencies(): Seq[Class[_ <: Component]] = classOf[VeloxBackend] :: Nil
+  override def dependencies(): Seq[Class[_ <: Component]] =
+      classOf[VeloxBackend] :: Nil
   override def isRuntimeCompatible: Boolean =
-    SparkReflectionUtil.isClassPresent("org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions")
+    SparkReflectionUtil.isClassPresent(
+        "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions")
   override def injectRules(injector: Injector): Unit = {
     OffloadIcebergScan.inject(injector)
     OffloadIcebergWrite.inject(injector)
@@ -199,7 +213,8 @@ Common code **never** checks "if Velox then ..."; it asks a facet via `BackendsA
 object BackendsApiManager {
   private lazy val backend: SubstraitBackend = {
     val loaded = Component.sorted().filter(_.isInstanceOf[SubstraitBackend])
-    assert(loaded.size == 1, s"Zero or more than one Substrait backends are loaded: ...")
+    assert(loaded.size == 1,
+        s"Zero or more than one Substrait backends are loaded: ...")
     loaded.head.asInstanceOf[SubstraitBackend]
   }
   def getSparkPlanExecApiInstance: SparkPlanExecApi = backend.sparkPlanExecApi()
@@ -262,10 +277,13 @@ This happens **once per JVM**; a second call throws `IllegalStateException("Alre
 
 ```scala
 val injector = new Injector(exts)
-injector.control.disableOn(session => !session.conf.get("spark.gluten.enabled", "true").toBoolean)
 injector.control.disableOn(session =>
-  !Option(session.sparkContext.getLocalProperty("gluten.enabledForCurrentThread")).forall(_.toBoolean))
-// Components should override Backend's rules. Hence, reversed injection order is applied.
+    !session.conf.get("spark.gluten.enabled", "true").toBoolean)
+injector.control.disableOn(session =>
+  !Option(session.sparkContext.getLocalProperty(
+      "gluten.enabledForCurrentThread")).forall(_.toBoolean))
+// Components should override Backend's rules. Hence, reversed injection order
+// is applied.
 Component.sorted().reverse.foreach(_.injectRules(injector))
 injector.inject()
 ```
@@ -280,7 +298,8 @@ When native code is first needed in a task (e.g. `NativePlanEvaluator.create`), 
 
 ```scala
 Runtimes.contextInstance(backendName, name, extraConf)
-// = TaskResources.addResourceIfNotRegistered(s"$backendName:$name:$extraConf", () => Runtime(...))
+// = TaskResources.addResourceIfNotRegistered(s"$backendName:$name:$extraConf",
+// () => Runtime(...))
 ```
 
 `RuntimeImpl` creates:
@@ -323,7 +342,8 @@ Component velox
 Component velox-iceberg
 ==============================================================
 INFO component: Components registered within order: velox, velox-iceberg
-INFO VeloxListenerApi: Memory overhead is not set. Setting it to 6442450944 automatically. ...
+INFO VeloxListenerApi: Memory overhead is not set. Setting it to 6442450944
+    automatically. ...
 ```
 
 **Try it / verify**

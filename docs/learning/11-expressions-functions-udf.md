@@ -69,12 +69,19 @@ How one Catalyst expression becomes a native function call.
 ### 4.1 Conversion algorithm
 
 ```scala
-private def replaceWithExpressionTransformer0(expr, attributeSeq, expressionsMap): ExpressionTransformer =
-  tryTransformWithoutExpressionMapping(expr, attributeSeq, expressionsMap).getOrElse {   // UDFs, StaticInvoke, Invoke
-    val substraitExprName = getAndCheckSubstraitName(expr, expressionsMap)                // class lookup (+ doExprValidate)
+private def replaceWithExpressionTransformer0(expr, attributeSeq,
+    expressionsMap): ExpressionTransformer =
+  // UDFs, StaticInvoke, Invoke
+  tryTransformWithoutExpressionMapping(expr, attributeSeq,
+      expressionsMap).getOrElse {
+    // class lookup (+ doExprValidate)
+    val substraitExprName = getAndCheckSubstraitName(expr, expressionsMap)
     BackendsApiManager.getSparkPlanExecApiInstance
-      .extraExpressionConverter(substraitExprName, expr, attributeSeq)                    // backend override
-      .getOrElse(transformExpression(expr, attributeSeq, expressionsMap, substraitExprName))  // big match on expression kinds
+      // backend override
+      .extraExpressionConverter(substraitExprName, expr, attributeSeq)
+      // big match on expression kinds
+      .getOrElse(transformExpression(expr, attributeSeq, expressionsMap,
+          substraitExprName))
   }
 ```
 
@@ -93,7 +100,8 @@ Failure points (all lead to operator fallback with a message):
 
 ```scala
 val SCALAR_SIGS: Seq[Sig] = Seq(
-  Sig[Add](ADD), Sig[Subtract](SUBTRACT), Sig[Multiply](MULTIPLY), Sig[Divide](DIVIDE),
+  Sig[Add](ADD), Sig[Subtract](SUBTRACT), Sig[Multiply](MULTIPLY),
+      Sig[Divide](DIVIDE),
   Sig[And](AND), Sig[Or](OR), ...
   Sig[Upper](UPPER), Sig[Substring](SUBSTRING), ...
   Sig[MapContainsKey](MAP_CONTAINS_KEY)
@@ -114,12 +122,18 @@ val SCALAR_SIGS: Seq[Sig] = Seq(
 - `registerAllFunctions()` (at `VeloxBackend::init`):
 
 ```cpp
-velox::functions::sparksql::registerFunctions("");                               // Spark-semantics scalar functions
-velox::aggregate::prestosql::registerAllAggregateFunctions("", true, false, true);  // + companion functions
-velox::functions::aggregate::sparksql::registerAggregateFunctions("", true, true);  // Spark aggs overwrite
+// Spark-semantics scalar functions
+velox::functions::sparksql::registerFunctions("");
+// + companion functions
+velox::aggregate::prestosql::registerAllAggregateFunctions("", true, false,
+    true);
+// Spark aggs overwrite
+velox::functions::aggregate::sparksql::registerAggregateFunctions("", true,
+    true);
 velox::window::prestosql::registerAllWindowFunctions();
 velox::functions::window::sparksql::registerWindowFunctions("");
-registerFunctionOverwrite();                                                      // name mismatch fixes
+// name mismatch fixes
+registerFunctionOverwrite();
 velox::functions::iceberg::registerFunctions();
 registerDeltaBitmapAggregator();
 ```
@@ -163,7 +177,8 @@ expr: hash(udf(col0)), col1, col2
 ### 5.1 Trace `upper(substr(name, 1, 3))`
 
 ```scala
-spark.read.parquet("/tmp/people").select(upper(substring($"name", 1, 3)).as("p"))
+spark.read.parquet("/tmp/people").select(upper(substring($"name", 1,
+    3)).as("p"))
 ```
 
 1. **Catalyst**: `Alias(Upper(Substring(name#0, Literal(1), Literal(3))), "p")` inside `ProjectExec`.

@@ -97,16 +97,24 @@ How a native write fits into Spark's write path.
 ### 4.3 Per-task execution (`VeloxColumnarWriteFilesRDD.compute`)
 
 ```scala
-val commitProtocol = new SparkWriteFilesCommitProtocol(jobTrackerID, description, committer)
+val commitProtocol = new SparkWriteFilesCommitProtocol(jobTrackerID,
+    description, committer)
 commitProtocol.setupTask()
 val writePath = commitProtocol.newTaskAttemptTempPath()
 val fileName  = commitProtocol.getFilename(FileNameSpec("", suffix))
-BackendsApiManager.getIteratorApiInstance.injectWriteFilesTempPath(writePath, fileName)  // -> native
-val iter = firstParent[ColumnarBatch].iterator(split, context)   // runs the native stage incl. TableWriteNode
-val resultColumnarBatch = iter.next()                             // one batch of write results
+// -> native
+BackendsApiManager.getIteratorApiInstance.injectWriteFilesTempPath(writePath,
+    fileName)
+// runs the native stage incl. TableWriteNode
+val iter = firstParent[ColumnarBatch].iterator(split, context)
+// one batch of write results
+val resultColumnarBatch = iter.next()
 val nativeWriteTaskResult = collectNativeWriteFilesMetrics(resultColumnarBatch)
-if (nativeWriteTaskResult.isEmpty) writeTaskResult = writeFilesForEmptyIterator(commitProtocol)  // vanilla empty file for metadata
-else { writeTaskResult = nativeWriteTaskResult.get; commitProtocol.commitTask() }
+// vanilla empty file for metadata
+if (nativeWriteTaskResult.isEmpty) writeTaskResult =
+    writeFilesForEmptyIterator(commitProtocol)
+else { writeTaskResult = nativeWriteTaskResult.get;
+    commitProtocol.commitTask() }
 ```
 
 `collectNativeWriteFilesMetrics` loads the result batch into the JVM and parses JSON **fragments** (`VeloxWriteFilesMetrics`: per partition name, file infos `writeFileName/targetFileName/fileSize`, row counts). It builds `BasicWriteTaskStats(partitions, numFiles, numBytes, numRows)`, `ExecutedWriteSummary`, and a `TaskCommitMessage` with absolute-path files for partitions — exactly what Spark's job commit expects. Output metrics (`bytesWritten`, `recordsWritten`) are reported to the task.

@@ -86,14 +86,17 @@ public long spill(long size, MemoryConsumer trigger) throws IOException {
 ```java
 public static long spillTree(TreeMemoryTarget node, final long bytes) {
   long remainingBytes = bytes;
-  for (Spiller.Phase phase : Spiller.Phase.values()) {        // SHRINK, then SPILL
+  // SHRINK, then SPILL
+  for (Spiller.Phase phase : Spiller.Phase.values()) {
     if (remainingBytes <= 0) break;
     remainingBytes -= spillTree(node, phase, remainingBytes);
   }
   return bytes - remainingBytes;
 }
-private static long spillTree(TreeMemoryTarget node, Spiller.Phase phase, final long bytes) {
-  // children sorted by usedBytes descending; recurse; then the node's own spiller if still short
+private static long spillTree(TreeMemoryTarget node, Spiller.Phase phase,
+    final long bytes) {
+  // children sorted by usedBytes descending; recurse; then the node's own
+  // spiller if still short
 }
 ```
 
@@ -107,8 +110,10 @@ Why this order?
 
 ```scala
 spillers.append(new Spiller() {
-  override def spill(self: MemoryTarget, phase: Spiller.Phase, size: Long): Long = {
-    if (!Spillers.PHASE_SET_SHRINK_ONLY.contains(phase)) return 0L   // only respond for shrinking
+  override def spill(self: MemoryTarget, phase: Spiller.Phase,
+      size: Long): Long = {
+    // only respond for shrinking
+    if (!Spillers.PHASE_SET_SHRINK_ONLY.contains(phase)) return 0L
     NativeMemoryManagerJniWrapper.shrink(handle, size)
   }
 })
@@ -122,7 +127,8 @@ Native `VeloxMemoryManager::shrink` → `arbitrator()->shrinkCapacity(rootPool, 
 // NativePlanEvaluator: registered right after creating the kernel
 public long spill(MemoryTarget self, Spiller.Phase phase, long size) {
   if (!Spiller.Phase.SPILL.equals(phase)) return 0L;
-  return out.spill(size);                    // ColumnarBatchOutIterator.nativeSpill -> ResultIterator::spillFixedSize
+  // ColumnarBatchOutIterator.nativeSpill -> ResultIterator::spillFixedSize
+  return out.spill(size);
 }
 ```
 
@@ -131,10 +137,14 @@ int64_t WholeStageResultIterator::spillFixedSize(int64_t size) {
   int64_t shrunken = memoryManager_->shrink(size);
   if (spillStrategy_ == "auto") {
     int64_t remaining = size - shrunken;
-    uint64_t spilledOut = memoryManager_->getMemoryManager()->arbitrator()->shrinkCapacity(remaining); // conducts spill
+    // conducts spill
+    uint64_t spilledOut =
+        memoryManager_->getMemoryManager()->arbitrator()->shrinkCapacity(
+            remaining);
     return shrunken + spilledOut;
   }
-  LOG(WARNING) << "Spill-to-disk was disabled since " << kSpillStrategy << " was not configured.";
+  LOG(WARNING) << "Spill-to-disk was disabled since " << kSpillStrategy <<
+      " was not configured.";
   return shrunken;
 }
 ```
@@ -143,8 +153,10 @@ int64_t WholeStageResultIterator::spillFixedSize(int64_t size) {
 
 ```cpp
 velox::memory::ScopedMemoryArbitrationContext ctx{};
-pool->reclaim(targetBytes, memoryReclaimMaxWaitMs_, status);   // Velox walks child pools & operators
-return shrinkCapacityInternal(pool, 0);                          // release freed capacity -> repay Spark
+// Velox walks child pools & operators
+pool->reclaim(targetBytes, memoryReclaimMaxWaitMs_, status);
+// release freed capacity -> repay Spark
+return shrinkCapacityInternal(pool, 0);
 ```
 
 `MemoryPool::reclaim` asks each reclaimable operator's `MemoryReclaimer` to free memory. Spillable Velox operators (when enabled by config):
@@ -164,7 +176,8 @@ Operators that can't spill at the moment (e.g. in a non-reclaimable section) are
 
 ```scala
 runtime.memoryManager().addSpiller(new Spiller() {
-  override def spill(self: MemoryTarget, phase: Spiller.Phase, size: Long): Long = phase match {
+  override def spill(self: MemoryTarget, phase: Spiller.Phase,
+      size: Long): Long = phase match {
     case Spiller.Phase.SPILL =>
       val spilled = shuffleWriterJniWrapper.reclaim(nativeShuffleWriter, size)
       spilled
@@ -215,8 +228,10 @@ A task runs a native stage (aggregation) and then, in the same task, a vanilla S
 You'll see in the executor log (illustrative):
 
 ```text
-INFO WholeStageResultIterator: Spill[root/root]: trying to request spill for 160.00MB.
-INFO WholeStageResultIterator: Spill[root/root]: successfully reclaimed total 200.12MB with shrunken 40.00MB and spilled 160.12MB.
+INFO WholeStageResultIterator: Spill[root/root]: trying to request spill for
+    160.00MB.
+INFO WholeStageResultIterator: Spill[root/root]: successfully reclaimed total
+    200.12MB with shrunken 40.00MB and spilled 160.12MB.
 ```
 
 and in the SQL UI on the aggregate transformer: `bytes written for spilling`, `total rows written for spilling`, `total spilled partitions`, `total spilled files` > 0 (names from `VeloxMetricsApi`).
@@ -234,10 +249,13 @@ and in the SQL UI on the aggregate transformer: `bytes written for spilling`, `t
 spark.memory.offHeap.size=16g
 spark.gluten.sql.columnar.backend.velox.spillStrategy=auto
 spark.gluten.sql.columnar.backend.velox.maxSpillFileSize=1GB
-spark.gluten.sql.columnar.backend.velox.spillPartitionBits=3          # 8 spill partitions per level
+# 8 spill partitions per level
+spark.gluten.sql.columnar.backend.velox.spillPartitionBits=3
 spark.gluten.sql.columnar.backend.velox.maxSpillLevel=4
-spark.gluten.sql.columnar.backend.velox.spillCompressionCodec=zstd    # smaller spill files, more CPU
-spark.local.dir=/mnt/disk1,/mnt/disk2                                 # spread spill I/O
+# smaller spill files, more CPU
+spark.gluten.sql.columnar.backend.velox.spillCompressionCodec=zstd
+# spread spill I/O
+spark.local.dir=/mnt/disk1,/mnt/disk2
 ```
 
 **Try it / verify**

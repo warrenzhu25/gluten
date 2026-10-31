@@ -67,7 +67,8 @@ The order matters. Maven packages the native libraries built in the step before 
 ### 3.1 First-time full build (recommended)
 
 ```bash
-export PROMPT_ALWAYS_RESPOND=y          # auto-confirm system package / vcpkg prompts
+# auto-confirm system package / vcpkg prompts
+export PROMPT_ALWAYS_RESPOND=y
 ./dev/buildbundle-veloxbe.sh --enable_vcpkg=ON \
   --enable_s3=OFF --enable_gcs=OFF --enable_hdfs=OFF --enable_abfs=OFF
 # -> package/target/gluten-velox-bundle-*.jar
@@ -78,7 +79,8 @@ export PROMPT_ALWAYS_RESPOND=y          # auto-confirm system package / vcpkg pr
 ```bash
 ./build/mvn clean install -Pbackends-velox -Pspark-3.5 -DskipTests
 # Spark 4.x:
-./build/mvn clean install -Pbackends-velox -Pspark-4.0 -Pjava-17 -Pscala-2.13 -DskipTests -Dmaven.compiler.release=17
+./build/mvn clean install -Pbackends-velox -Pspark-4.0 -Pjava-17 -Pscala-2.13 \
+  -DskipTests -Dmaven.compiler.release=17
 ```
 
 ### 3.2 Native build options (`builddeps-veloxbe.sh`)
@@ -151,13 +153,26 @@ IDE setup & debugging (IntelliJ for Scala, VSCode/CLion for C++, attaching gdb t
 
 ### 5.1 Test layers
 
-| Layer | Location | What it checks | How to run |
-|---|---|---|---|
-| Scala backend suites | `backends-velox/src/test/scala` (e.g. `functions/*ValidateSuite`, execution suites, TPC-H plan checks with `tpch-approved-plan/`) | Results vs vanilla Spark + that plans are offloaded (`checkGlutenPlan[...]`) | `./build/mvn test -Pbackends-velox -Pspark-3.5 -pl backends-velox -Dsuites=org.apache.gluten.functions.ScalarFunctionsValidateSuite` |
-| Spark UT reuse | `gluten-ut/spark3x/...`, enabled list in `VeloxTestSettings.scala` | Spark's own test suites run with Gluten (`enableSuite[...]`, `.exclude("test name")`) | `./build/mvn test -pl gluten-ut -Pspark-ut -Pbackends-velox -Pspark-3.5 -Pscala-2.12` |
-| C++ gtests | `cpp/velox/tests` (Substrait conversion/validation, shuffle writers, C2R/R2C, memory manager, functions, ...) | Native components in isolation | Build with `--build_tests=ON`, run binaries from `cpp/build/velox/tests` (or `ctest`) |
-| Micro benchmarks | `cpp/velox/benchmarks` (`GenericBenchmark`, `ParquetWriteBenchmark`, ...) | Replay dumped tasks, profile | [MicroBenchmarks.md](../../docs/developers/MicroBenchmarks.md) |
-| Integration | `tools/gluten-it` | TPC-H/TPC-DS data gen, query runs, result comparison vs baseline, parameterized configs | `cd tools/gluten-it && mvn clean package -Pspark-3.5 && sbin/gluten-it.sh queries-compare ...` |
+- **Scala backend suites**
+  - Where: `backends-velox/src/test/scala` (e.g. `functions/*ValidateSuite`, execution suites, TPC-H plan checks with `tpch-approved-plan/`)
+  - Checks: Results vs vanilla Spark + that plans are offloaded (`checkGlutenPlan[...]`)
+  - Run: `./build/mvn test -Pbackends-velox -Pspark-3.5 -pl backends-velox -Dsuites=org.apache.gluten.functions.ScalarFunctionsValidateSuite`
+- **Spark UT reuse**
+  - Where: `gluten-ut/spark3x/...`, enabled list in `VeloxTestSettings.scala`
+  - Checks: Spark's own test suites run with Gluten (`enableSuite[...]`, `.exclude("test name")`)
+  - Run: `./build/mvn test -pl gluten-ut -Pspark-ut -Pbackends-velox -Pspark-3.5 -Pscala-2.12`
+- **C++ gtests**
+  - Where: `cpp/velox/tests` (Substrait conversion/validation, shuffle writers, C2R/R2C, memory manager, functions, ...)
+  - Checks: Native components in isolation
+  - Run: Build with `--build_tests=ON`, run binaries from `cpp/build/velox/tests` (or `ctest`)
+- **Micro benchmarks**
+  - Where: `cpp/velox/benchmarks` (`GenericBenchmark`, `ParquetWriteBenchmark`, ...)
+  - Checks: Replay dumped tasks, profile
+  - Run: [MicroBenchmarks.md](../../docs/developers/MicroBenchmarks.md)
+- **Integration**
+  - Where: `tools/gluten-it`
+  - Checks: TPC-H/TPC-DS data gen, query runs, result comparison vs baseline, parameterized configs
+  - Run: `cd tools/gluten-it && mvn clean package -Pspark-3.5 && sbin/gluten-it.sh queries-compare ...`
 
 Example Scala test pattern:
 

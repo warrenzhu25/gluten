@@ -59,7 +59,8 @@ From [docs/get-started/ClickHouse.md](../../docs/get-started/ClickHouse.md):
 ```bash
 bash ./ep/build-clickhouse/src/build-clickhouse.sh
 ./build/mvn clean package -Pbackends-clickhouse -Pspark-3.3 -DskipTests
-# then set spark.plugins=org.apache.gluten.GlutenPlugin and point Gluten to libch.so (see ClickHouse.md)
+# then set spark.plugins=org.apache.gluten.GlutenPlugin and point Gluten to
+# libch.so (see ClickHouse.md)
 ```
 
 > **Note:** The rest of this series focuses on Velox; many concepts (components, rules, validation, fallback, transitions, memory targets, Substrait) apply equally to ClickHouse, but operator details, configs and native internals differ.
@@ -151,7 +152,8 @@ spark-shell \
   --conf spark.memory.offHeap.size=6442450944 \
   --conf spark.executorEnv.LD_PRELOAD=/path_to_clickhouse_library/libch.so \
   --conf spark.gluten.sql.columnar.libpath=/path_to_clickhouse_library/libch.so
-# ClickHouse.md copies gluten-XXXXX-spark-3.3-jar-with-dependencies.jar into the Spark jars dir first
+# ClickHouse.md copies gluten-XXXXX-spark-3.3-jar-with-dependencies.jar into the
+# Spark jars dir first
 ```
 
 ```scala
@@ -163,8 +165,10 @@ What to expect: the same `^ ...Transformer` nodes as with Velox, but backend-spe
 ### 6.2 GPU (cuDF): run a filter + sort on the GPU
 
 ```bash
-# Build (inside apache/gluten:centos-9-jdk8-cudf, after dev/start-cudf.sh on the host)
-./dev/buildbundle-veloxbe.sh --run_setup_script=OFF --build_arrow=OFF --enable_gpu=ON
+# Build (inside apache/gluten:centos-9-jdk8-cudf, after dev/start-cudf.sh on the
+# host)
+./dev/buildbundle-veloxbe.sh --run_setup_script=OFF --build_arrow=OFF \
+  --enable_gpu=ON
 
 spark-shell \
   --conf spark.plugins=org.apache.gluten.GlutenPlugin \
@@ -175,7 +179,10 @@ spark-shell \
 ```
 
 ```scala
-spark.read.parquet("/data/orders").where("o_totalprice > 1000").orderBy("o_orderdate").explain()
+spark.read.parquet("/data/orders")
+  .where("o_totalprice > 1000")
+  .orderBy("o_orderdate")
+  .explain()
 ```
 
 What to expect:
@@ -194,13 +201,17 @@ cd gluten-flink && mvn clean package -Dmaven.test.skip=true
 
 # 2. Put the jars in front of Flink's classpath
 mkdir -p $FLINK_HOME/gluten_lib
-ln -s $VELOX4J_HOME/target/velox4j-0.1.0-SNAPSHOT.jar           $FLINK_HOME/gluten_lib/
-ln -s $GLUTEN_FLINK_HOME/runtime/target/gluten-flink-runtime-1.7.0.jar $FLINK_HOME/gluten_lib/
-ln -s $GLUTEN_FLINK_HOME/loader/target/gluten-flink-loader-1.7.0.jar   $FLINK_HOME/gluten_lib/
-#    ...and prepend them in constructFlinkClassPath() in $FLINK_HOME/bin/config.sh
+ln -s $VELOX4J_HOME/target/velox4j-0.1.0-SNAPSHOT.jar \
+  $FLINK_HOME/gluten_lib/
+ln -s $GLUTEN_FLINK_HOME/runtime/target/gluten-flink-runtime-1.7.0.jar \
+  $FLINK_HOME/gluten_lib/
+ln -s $GLUTEN_FLINK_HOME/loader/target/gluten-flink-loader-1.7.0.jar \
+  $FLINK_HOME/gluten_lib/
+# ...and prepend them in constructFlinkClassPath() in $FLINK_HOME/bin/config.sh
 
 # 3. Run
-cd $FLINK_HOME && bin/start-cluster.sh && bin/flink run examples/table/StreamSQLExample.jar
+cd $FLINK_HOME && bin/start-cluster.sh && bin/flink run \
+  examples/table/StreamSQLExample.jar
 ```
 
 What to expect: an operator named **`gluten-cal`** in the Flink web UI, and results in `log/flink-*-taskexecutor-*.out`. Flink.md notes that this example currently hits an NPE until issue #10315 is fixed.
@@ -209,13 +220,11 @@ What to expect: an operator named **`gluten-cal`** in the Flink web UI, and resu
 
 ## 7. Configuration reference
 
-| Key | Default | Applies to | Effect |
-|---|---|---|---|
-| `spark.gluten.sql.columnar.libpath` | — | ClickHouse | Path to `libch.so` |
-| `spark.executorEnv.LD_PRELOAD` | — | ClickHouse | Preload `libch.so` on executors (from ClickHouse.md) |
-| `spark.gluten.sql.columnar.cudf` | `false` | GPU | Run supported stages on GPU |
-| `spark.gluten.sql.debug.cudf` | `false` (static) | GPU | Log cuDF operator replacement |
-| `spark.gluten.sql.columnar.backend.velox.cudf.*` | see `VeloxConfig` | GPU | RMM memory, table scan, validation, batch size (§3.3) |
+- `spark.gluten.sql.columnar.libpath` (ClickHouse): Path to `libch.so`
+- `spark.executorEnv.LD_PRELOAD` (ClickHouse): Preload `libch.so` on executors (from ClickHouse.md)
+- `spark.gluten.sql.columnar.cudf` (GPU, default `false`): Run supported stages on GPU.
+- `spark.gluten.sql.debug.cudf` (GPU, default `false` (static)): Log cuDF operator replacement.
+- `spark.gluten.sql.columnar.backend.velox.cudf.*` (GPU, default see `VeloxConfig`): RMM memory, table scan, validation, batch size (§3.3)
 
 ## 8. Pitfalls & FAQ
 

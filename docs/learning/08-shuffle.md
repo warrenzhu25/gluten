@@ -42,24 +42,22 @@ It reuses Spark's shuffle *infrastructure* (map status, block resolver, fetch) i
 
 ## 2. Key concepts
 
-| Concept | Side | Description | Code |
-|---|---|---|---|
-| `ColumnarShuffleExchangeExec` | JVM | Columnar exchange node; builds dependency, metrics, serializer | [ColumnarShuffleExchangeExec.scala](../../gluten-substrait/src/main/scala/org/apache/spark/sql/execution/ColumnarShuffleExchangeExec.scala) |
-| `ColumnarShuffleDependency` | JVM | `ShuffleDependency` carrying native partitioning, writer type, metrics | [ColumnarShuffleDependency.scala](../../gluten-substrait/src/main/scala/org/apache/spark/shuffle/ColumnarShuffleDependency.scala) |
-| `ColumnarShuffleManager` | JVM | Spark `ShuffleManager` that creates Gluten writers/readers for columnar deps | [ColumnarShuffleManager.scala](../../gluten-substrait/src/main/scala/org/apache/spark/shuffle/sort/ColumnarShuffleManager.scala) |
-| `GlutenShuffleManager` | JVM | Registry-based manager delegating per dependency (columnar → `ColumnarShuffleManager`) | [GlutenShuffleManager.scala](../../gluten-core/src/main/scala/org/apache/spark/shuffle/GlutenShuffleManager.scala) |
-| `ShuffleWriterType` | JVM | `HashShuffleWriterType`, `SortShuffleWriterType`, `RssSortShuffleWriterType`, `GpuHashShuffleWriterType` | [GlutenConfig.scala](../../gluten-substrait/src/main/scala/org/apache/gluten/config/GlutenConfig.scala#L32-L60) |
-| `ColumnarShuffleWriter` | JVM | Spark `ShuffleWriter`; creates native writer, feeds batches, registers spiller, commits map output | [ColumnarShuffleWriter.scala](../../backends-velox/src/main/scala/org/apache/spark/shuffle/ColumnarShuffleWriter.scala) |
-| `ColumnarBatchSerializer` | JVM | Spark `Serializer` used on the read side; wraps native reader | [ColumnarBatchSerializer.scala](../../backends-velox/src/main/scala/org/apache/gluten/vectorized/ColumnarBatchSerializer.scala) |
-| `Partitioner` (C++) | native | `HashPartitioner`, `RoundRobinPartitioner`, `SinglePartitioner`, `FallbackRangePartitioner`, `RandomPartitioner` | `cpp/core/shuffle/*Partitioner*` |
-| `VeloxHashShuffleWriter` | native | Split-to-buffers writer | [VeloxHashShuffleWriter.cc](../../cpp/velox/shuffle/VeloxHashShuffleWriter.cc) |
-| `VeloxSortShuffleWriter` | native | Row-pages + radix sort writer | [VeloxSortShuffleWriter.cc](../../cpp/velox/shuffle/VeloxSortShuffleWriter.cc) |
-| `VeloxRssSortShuffleWriter` | native | Buffered vectors + Presto serde writer (RSS) | [VeloxRssSortShuffleWriter.cc](../../cpp/velox/shuffle/VeloxRssSortShuffleWriter.cc) |
-| `PartitionWriter` | native | Destination abstraction: `hashEvict`, `sortEvict`, `evict`, `stop`, `reclaimFixedSize` | [PartitionWriter.h](../../cpp/core/shuffle/PartitionWriter.h) |
-| `LocalPartitionWriter` | native | Local files: payload cache/merge, spills, final data file | [LocalPartitionWriter.cc](../../cpp/core/shuffle/LocalPartitionWriter.cc) |
-| `Payload` | native | `InMemoryPayload` (raw buffers), `BlockPayload` (serialized/compressed) | [Payload.cc](../../cpp/core/shuffle/Payload.cc) |
-| `VeloxShuffleReader` + deserializers | native | Hash / Sort / RssSort deserializers → Velox batches | [VeloxShuffleReader.cc](../../cpp/velox/shuffle/VeloxShuffleReader.cc) |
-| `Options.h` | native | Defaults for writer/reader options | [Options.h](../../cpp/core/shuffle/Options.h) |
+- `ColumnarShuffleExchangeExec` (JVM): Columnar exchange node; builds dependency, metrics, serializer. Code: [ColumnarShuffleExchangeExec.scala](../../gluten-substrait/src/main/scala/org/apache/spark/sql/execution/ColumnarShuffleExchangeExec.scala)
+- `ColumnarShuffleDependency` (JVM): `ShuffleDependency` carrying native partitioning, writer type, metrics. Code: [ColumnarShuffleDependency.scala](../../gluten-substrait/src/main/scala/org/apache/spark/shuffle/ColumnarShuffleDependency.scala)
+- `ColumnarShuffleManager` (JVM): Spark `ShuffleManager` that creates Gluten writers/readers for columnar deps. Code: [ColumnarShuffleManager.scala](../../gluten-substrait/src/main/scala/org/apache/spark/shuffle/sort/ColumnarShuffleManager.scala)
+- `GlutenShuffleManager` (JVM): Registry-based manager delegating per dependency (columnar → `ColumnarShuffleManager`) Code: [GlutenShuffleManager.scala](../../gluten-core/src/main/scala/org/apache/spark/shuffle/GlutenShuffleManager.scala)
+- `ShuffleWriterType` (JVM): `HashShuffleWriterType`, `SortShuffleWriterType`, `RssSortShuffleWriterType`, `GpuHashShuffleWriterType` Code: [GlutenConfig.scala](../../gluten-substrait/src/main/scala/org/apache/gluten/config/GlutenConfig.scala#L32-L60)
+- `ColumnarShuffleWriter` (JVM): Spark `ShuffleWriter`; creates native writer, feeds batches, registers spiller, commits map output. Code: [ColumnarShuffleWriter.scala](../../backends-velox/src/main/scala/org/apache/spark/shuffle/ColumnarShuffleWriter.scala)
+- `ColumnarBatchSerializer` (JVM): Spark `Serializer` used on the read side; wraps native reader. Code: [ColumnarBatchSerializer.scala](../../backends-velox/src/main/scala/org/apache/gluten/vectorized/ColumnarBatchSerializer.scala)
+- `Partitioner` (C++) (native): `HashPartitioner`, `RoundRobinPartitioner`, `SinglePartitioner`, `FallbackRangePartitioner`, `RandomPartitioner` Code: `cpp/core/shuffle/*Partitioner*`
+- `VeloxHashShuffleWriter` (native): Split-to-buffers writer. Code: [VeloxHashShuffleWriter.cc](../../cpp/velox/shuffle/VeloxHashShuffleWriter.cc)
+- `VeloxSortShuffleWriter` (native): Row-pages + radix sort writer. Code: [VeloxSortShuffleWriter.cc](../../cpp/velox/shuffle/VeloxSortShuffleWriter.cc)
+- `VeloxRssSortShuffleWriter` (native): Buffered vectors + Presto serde writer (RSS) Code: [VeloxRssSortShuffleWriter.cc](../../cpp/velox/shuffle/VeloxRssSortShuffleWriter.cc)
+- `PartitionWriter` (native): Destination abstraction: `hashEvict`, `sortEvict`, `evict`, `stop`, `reclaimFixedSize` Code: [PartitionWriter.h](../../cpp/core/shuffle/PartitionWriter.h)
+- `LocalPartitionWriter` (native): Local files: payload cache/merge, spills, final data file. Code: [LocalPartitionWriter.cc](../../cpp/core/shuffle/LocalPartitionWriter.cc)
+- `Payload` (native): `InMemoryPayload` (raw buffers), `BlockPayload` (serialized/compressed) Code: [Payload.cc](../../cpp/core/shuffle/Payload.cc)
+- `VeloxShuffleReader` + deserializers (native): Hash / Sort / RssSort deserializers → Velox batches. Code: [VeloxShuffleReader.cc](../../cpp/velox/shuffle/VeloxShuffleReader.cc)
+- `Options.h` (native): Defaults for writer/reader options. Code: [Options.h](../../cpp/core/shuffle/Options.h)
 
 ---
 
@@ -112,8 +110,10 @@ if (conf.isUseCelebornShuffleManager) {
   } else HashShuffleWriterType
 } else {
   if (partitioning != SinglePartition &&
-      (partitioning.numPartitions >= columnarShuffleSortPartitionsThreshold ||   // default 4000
-       output.size >= columnarShuffleSortColumnsThreshold))                     // default 100000
+      // default 4000
+      (partitioning.numPartitions >= columnarShuffleSortPartitionsThreshold ||
+       // default 100000
+       output.size >= columnarShuffleSortColumnsThreshold))
     SortShuffleWriterType
   else HashShuffleWriterType
 }
@@ -147,17 +147,23 @@ For each input `ColumnarBatch`:
 **Per batch** (`write` → `partitioningAndDoSplit` → `doSplit`):
 
 ```text
-1. compute pid per row (HashPartitioner: pmod(hash_partition_key, n)); count rows per partition
+1. compute pid per row (HashPartitioner: pmod(hash_partition_key,
+    n)); count rows per partition
 2. strip the pid column
 3. calculatePartitionBufferSize(rv, memLimit):
-      bytesPerRow = fixed-width bytes + avg binary bytes (running) + avg complex bytes
+      bytesPerRow = fixed-width bytes + avg binary bytes (running) + avg
+          complex bytes
       memLimit   += cachedPayloadSize(); memLimit = max(memLimit, 128MB)
-      preAllocRowCnt = min(memLimit / bytesPerRow / numPartitions >> 2, splitBufferSize)
-4. preAllocPartitionBuffers: allocate/resize/evict buffers for partitions that receive rows
-   (realloc when size differs by more than spark.gluten.sql.columnar.shuffle.realloc.threshold)
+      preAllocRowCnt = min(memLimit / bytesPerRow / numPartitions >> 2,
+          splitBufferSize)
+4. preAllocPartitionBuffers: allocate/resize/evict buffers for partitions that
+    receive rows
+   (realloc when size differs by more than
+       spark.gluten.sql.columnar.shuffle.realloc.threshold)
 5. splitRowVector: column-by-column scatter into partition buffers
    (fixed-width, validity, booleans, binary/strings, complex)
-6. if partitionBufferEvictThreshold > 0: evict partitions whose buffers exceed it
+6. if partitionBufferEvictThreshold > 0: evict partitions whose buffers exceed
+    it
 ```
 
 **Eviction**: when a partition's buffer is full (or at stop / under memory pressure), `evictPartitionBuffers` → `assembleBuffers` → `InMemoryPayload` → `partitionWriter->hashEvict(pid, payload, Evict::kCache|kSpill, reuseBuffers, ...)`.
@@ -172,7 +178,8 @@ For each input `ColumnarBatch`:
 **Data structures**: pages of serialized **compact rows** (`velox::row::CompactRow`), and an array of 64-bit **compact row ids**:
 
 ```text
-row id = [ partitionId : 24 bits | pageNumber : 13 bits | offsetInPage : 27 bits ]
+row id = [ partitionId : 24 bits | pageNumber : 13 bits | offsetInPage : 27
+    bits ]
 ```
 
 **Per batch** (`insert`): compute pid (same partitioner), serialize rows into the current page (allocate new pages as needed), append row ids; `maybeSpill` triggers `evictAllPartitions` when the array would overflow `uint32` rows or pages exceed `kMaxPageNumber` (8191).
@@ -230,7 +237,8 @@ Map task (illustrative):
 ^ FlushableHashAggregateExecTransformer (partial)  -> batch [k, count]
 ^ ProjectExecTransformer [murmur3hash(k) AS hash_partition_key, k, count]
 VeloxResizeBatches                                   -> coalesce tiny batches
-ColumnarExchange hashpartitioning(k, 200)            -> writer type chosen at planning (hash here)
+ColumnarExchange hashpartitioning(k,
+    200) -> writer type chosen at planning (hash here)
 ```
 
 1. 200 partitions < 4000 → **hash writer**.
@@ -252,9 +260,15 @@ Now with `spark.sql.shuffle.partitions=8000` the same query uses the **sort writ
 
 ```scala
 spark.conf.set("spark.sql.shuffle.partitions", "200")
-spark.range(0, 10000000).selectExpr("id % 1000 AS k").groupBy("k").count().collect()   // hash writer: "time to split"
+// hash writer: "time to split"
+spark.range(0, 10000000)
+  .selectExpr("id % 1000 AS k")
+  .groupBy("k").count().collect()
 spark.conf.set("spark.sql.shuffle.partitions", "8000")
-spark.range(0, 10000000).selectExpr("id % 1000 AS k").groupBy("k").count().collect()   // sort writer: "time to shuffle sort"
+// sort writer: "time to shuffle sort"
+spark.range(0, 10000000)
+  .selectExpr("id % 1000 AS k")
+  .groupBy("k").count().collect()
 ```
 
 In the SQL UI, open `ColumnarExchange`. The first run reports `time to split`, the second `time to shuffle sort`. That confirms the writer switch at 4000 partitions.

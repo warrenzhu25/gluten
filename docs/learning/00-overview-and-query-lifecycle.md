@@ -110,15 +110,13 @@ Throughout, Velox reserves memory from Spark's `TaskMemoryManager`, and Spark ca
 
 ### Layered view
 
-| Layer | Language | Modules | Responsibility |
-|---|---|---|---|
-| Plugin & lifecycle | Scala | `gluten-core` | `GlutenPlugin`, component discovery, rule injection, task resources, memory targets |
-| Planning & Substrait | Scala/Java | `gluten-substrait` | Transformers, validators, fallback, Substrait builders, whole-stage RDDs, shuffle exchange, configs |
-| Arrow/JNI glue | Scala/Java | `gluten-arrow` | Runtime, native memory manager, JNI wrappers, Arrow batch helpers |
-| Velox backend (JVM side) | Scala | `backends-velox` | `VeloxBackend` + Api impls, Velox-specific rules/transformers, shuffle writer, configs |
-| Native core | C++ | `cpp/core` | JNI entry points, generic runtime/memory/shuffle infrastructure |
-| Native Velox | C++ | `cpp/velox` | Substrait→Velox conversion, `WholeStageResultIterator`, Velox shuffle, memory manager, UDFs |
-| Engine | C++ | Velox (built from `ep/build-velox`) | Operators, expressions, readers/writers, memory pools, spilling |
+- **Plugin & lifecycle** (Scala, `gluten-core`): `GlutenPlugin`, component discovery, rule injection, task resources, memory targets.
+- **Planning & Substrait** (Scala/Java, `gluten-substrait`): Transformers, validators, fallback, Substrait builders, whole-stage RDDs, shuffle exchange, configs.
+- **Arrow/JNI glue** (Scala/Java, `gluten-arrow`): Runtime, native memory manager, JNI wrappers, Arrow batch helpers.
+- **Velox backend (JVM side)** (Scala, `backends-velox`): `VeloxBackend` + Api impls, Velox-specific rules/transformers, shuffle writer, configs.
+- **Native core** (C++, `cpp/core`): JNI entry points, generic runtime/memory/shuffle infrastructure.
+- **Native Velox** (C++, `cpp/velox`): Substrait→Velox conversion, `WholeStageResultIterator`, Velox shuffle, memory manager, UDFs.
+- **Engine** (C++, Velox, built from `ep/build-velox`): Operators, expressions, readers/writers, memory pools, spilling.
 
 ---
 
@@ -232,7 +230,8 @@ AdaptiveSparkPlan
                            +- ColumnarExchange (8)
                               +- VeloxResizeBatches (7)
                                  +- ^ ProjectExecTransformer (5)
-                                    +- ^ FlushableHashAggregateExecTransformer (4)
+                                    +- ^ FlushableHashAggregateExecTransformer
+                                             (4)
                                        +- ^ ProjectExecTransformer (3)
                                           +- ^ FilterExecTransformer (2)
                                              +- ^ FileSourceScanExecTransformer parquet (1)
@@ -310,15 +309,13 @@ Details: [05 · Transitions](05-columnar-batches-conventions-transitions.md), [1
 
 ## 6. What runs where
 
-| Activity | Driver | Executor (JVM) | Executor (native) |
-|---|---|---|---|
-| Rule injection / plan rewrite | ✅ | | |
-| Native validation (Substrait → Velox validator) | ✅ (via JNI on driver) | | |
-| Substrait plan + split generation | ✅ | | |
-| Task iteration, Spark metrics | | ✅ | |
-| Plan conversion & execution | | | ✅ |
-| Memory accounting | | ✅ (memory targets) | ✅ (pools, arbitrator) |
-| Shuffle write/read | | ✅ (Spark framework) | ✅ (partitioning, serialization, compression) |
+- **Rule injection / plan rewrite**: Driver.
+- **Native validation (Substrait → Velox validator)**: Driver (via JNI on driver).
+- **Substrait plan + split generation**: Driver.
+- **Task iteration, Spark metrics**: Executor (JVM).
+- **Plan conversion & execution**: Executor (native).
+- **Memory accounting**: Executor (JVM) (memory targets), Executor (native) (pools, arbitrator).
+- **Shuffle write/read**: Executor (JVM) (Spark framework), Executor (native) (partitioning, serialization, compression).
 
 > **Note:** Native libraries are loaded on the **driver too**, because native validation runs there during planning.
 
@@ -334,9 +331,12 @@ If any check fails for a node — a config disables it, the backend doesn't supp
 
 ```scala
 // spark-shell with Gluten enabled
-spark.range(0, 1000000).selectExpr("id % 10 as k", "id as v").write.mode("overwrite").parquet("/tmp/t")
+spark.range(0, 1000000)
+  .selectExpr("id % 10 as k", "id as v")
+  .write.mode("overwrite").parquet("/tmp/t")
 val df = spark.read.parquet("/tmp/t").groupBy("k").sum("v")
-df.explain("formatted")        // look for ^ nodes and WholeStageCodegenTransformer
+// look for ^ nodes and WholeStageCodegenTransformer
+df.explain("formatted")
 df.collect()
 
 import org.apache.spark.sql.execution.GlutenImplicits._

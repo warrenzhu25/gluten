@@ -96,10 +96,14 @@ The output is the executed plan.
 Code (simplified from `HeuristicApplier.makeRule`):
 
 ```scala
-val suggestedPlan = transformPlan("transform", transformRules(call), originalPlan)
-val finalPlan = transformPlan("fallback", fallbackPolicies(call).map(_(originalPlan)), suggestedPlan) match {
-  case FallbackNode(fallbackPlan) => fallbackPlan            // skip post rules: no GlutenPlan left
-  case plan                       => transformPlan("post", postRules(call), plan)
+val suggestedPlan = transformPlan("transform", transformRules(call),
+    originalPlan)
+val finalPlan = transformPlan("fallback",
+    fallbackPolicies(call).map(_(originalPlan)), suggestedPlan) match {
+  // skip post rules: no GlutenPlan left
+  case FallbackNode(fallbackPlan) => fallbackPlan
+  case plan                       => transformPlan("post", postRules(call),
+      plan)
 }
 transformPlan("final", finalRules(call), finalPlan)
 ```
@@ -192,9 +196,12 @@ Native validation happens last because it's the most expensive.
 
 ```scala
 final def doValidate(): ValidationResult = {
-  // 1) schema check via ValidatorApi.doSchemaValidate(schema) -> unsupported types fail here
-  // 2) failValidationWithException { TransformerState.enterValidation; doValidateInternal() }
-  //    - GlutenNotSupportException / UnsupportedOperationException become ValidationResult.failed(
+  // 1) schema check via ValidatorApi.doSchemaValidate(schema) -> unsupported
+  // types fail here
+  // 2) failValidationWithException { TransformerState.enterValidation;
+  // doValidateInternal() }
+  // - GlutenNotSupportException / UnsupportedOperationException become
+  // ValidationResult.failed(
   //      "Validation failed with exception from: <node>, reason: <msg>")
 }
 ```
@@ -204,11 +211,14 @@ Each transformer implements `doValidateInternal()`. The typical pattern (from `F
 ```scala
 override protected def doValidateInternal(): ValidationResult = {
   val remainingCondition = getRemainingCondition
-  if (remainingCondition == null) return ValidationResult.succeeded   // fully pushed into scan
+  // fully pushed into scan
+  if (remainingCondition == null) return ValidationResult.succeeded
   val substraitContext = new SubstraitContext
   val operatorId = substraitContext.nextOperatorId(this.nodeName)
-  // 1) can we even build Substrait for this node? (expression conversion may throw)
-  val relNode = getRelNode(substraitContext, remainingCondition, child.output, operatorId, null, validation = true)
+  // 1) can we even build Substrait for this node? (expression conversion may
+  // throw)
+  val relNode = getRelNode(substraitContext, remainingCondition,
+      child.output, operatorId, null, validation = true)
   // 2) ask the native engine
   doNativeValidation(substraitContext, relNode)
 }
@@ -237,8 +247,10 @@ Why `PullOutPreProject`? From its scaladoc: *"The native engine only supports ex
 ### 5.4 Fallback tags
 
 ```scala
-FallbackTags.add(plan, "reason")              // Appendable: reasons accumulate ("r1; r2")
-FallbackTags.add(plan, FallbackTag.Exclusive("whole stage fallback"))  // overrides others
+// Appendable: reasons accumulate ("r1; r2")
+FallbackTags.add(plan, "reason")
+// overrides others
+FallbackTags.add(plan, FallbackTag.Exclusive("whole stage fallback"))
 FallbackTags.nonEmpty(plan)                    // => node will stay vanilla
 ```
 
@@ -284,7 +296,8 @@ Details of each operator: [12 · Operators](12-operators-join-agg-window-sort.md
 If enabled and `netTransitionCost >= threshold`, the policy builds the vanilla plan and compares: with `spark.gluten.sql.columnar.fallback.preferColumnar=true` (default) it keeps the Gluten plan when the vanilla plan wouldn't have fewer transitions (e.g. a Gluten Parquet scan + one C2R is still better than a vanilla scan). Otherwise it returns `FallbackNode(vanillaPlan)` with an `Exclusive` reason like:
 
 ```text
-Fallback policy is taking effect, net transition cost: 3, cost: 3, fallback cost: 0, threshold: 2
+Fallback policy is taking effect, net transition cost: 3, cost: 3,
+    fallback cost: 0, threshold: 2
 ```
 
 The scaladoc lists important safety cases (e.g. a broadcast hash join (BHJ) whose broadcast side is already columnar must stay columnar).
@@ -296,11 +309,14 @@ The scaladoc lists important safety cases (e.g. a broadcast hash join (BHJ) whos
 After transformation, adjacent `TransformSupport` nodes are grouped:
 
 ```scala
-private def insertWholeStageTransformer(plan: SparkPlan): SparkPlan = plan match {
+private def insertWholeStageTransformer(plan: SparkPlan): SparkPlan =
+    plan match {
   case wst: WholeStageTransformer => wst
   case t if supportTransform(t) =>
-    WholeStageTransformer(t.withNewChildren(t.children.map(insertInputIteratorTransformer)))(-1)
-  case other => other.withNewChildren(other.children.map(insertWholeStageTransformer))
+    WholeStageTransformer(t.withNewChildren(t.children.map(
+        insertInputIteratorTransformer)))(-1)
+  case other => other.withNewChildren(other.children.map(
+      insertWholeStageTransformer))
 }
 ```
 
@@ -331,7 +347,8 @@ VeloxColumnarToRow (42)
                :     +- ColumnarExchange (23)
                :        +- VeloxResizeBatches (22)
                :           +- ^ ProjectExecTransformer (20)
-               :              +- ^ ShuffledHashJoinExecTransformer Inner BuildLeft (19)
+               :              +- ^ ShuffledHashJoinExecTransformer Inner
+               :                       BuildLeft (19)
                :                 :- ^ InputIteratorTransformer (9) ...
                +- ^ InputIteratorTransformer (35) ...
 ```
@@ -343,7 +360,8 @@ Observe:
 ### 9.2 A forced fallback
 
 ```scala
-spark.conf.set("spark.gluten.sql.columnar.sort", "false")     // disable native sort
+// disable native sort
+spark.conf.set("spark.gluten.sql.columnar.sort", "false")
 val df = spark.read.parquet("/tmp/t").where("v > 10").orderBy("k")
 df.explain("formatted")
 ```
@@ -363,7 +381,8 @@ Sort [k ASC]                                   <- vanilla (validator #5 failed)
 Driver log (`GlutenFallbackReporter`, level from `spark.gluten.sql.validation.logLevel`):
 
 ```text
-WARN GlutenFallbackReporter: Validation failed for plan: Sort[QueryId=3], due to: [FallbackByUserOptions] Validation failed on node Sort.
+WARN GlutenFallbackReporter: Validation failed for plan: Sort[QueryId=3],
+    due to: [FallbackByUserOptions] Validation failed on node Sort.
 ```
 
 Programmatic summary:
@@ -371,7 +390,8 @@ Programmatic summary:
 ```scala
 import org.apache.spark.sql.execution.GlutenImplicits._
 df.fallbackSummary()
-// FallbackSummary(numGlutenNodes = 4, numFallbackNodes = 1, ..., fallbackNodeToReason = Seq(Map("Sort" -> "...")))
+// FallbackSummary(numGlutenNodes = 4, numFallbackNodes = 1, ...,
+// fallbackNodeToReason = Seq(Map("Sort" -> "...")))
 ```
 
 ### 9.3 An unsupported expression
@@ -395,27 +415,25 @@ spark.read.parquet("/tmp/s").select(f($"name"), $"id" + 1)
 
 ## 10. Configuration reference
 
-| Key | Default | Effect | When to change |
-|---|---|---|---|
-| `spark.gluten.enabled` | `true` | Session switch for all Gluten rules | Disable per session for A/B |
-| `spark.gluten.sql.columnar.<op>` (e.g. `filter`, `project`, `sort`, `window`, `hashagg`, `shuffle`, `broadcastJoin`, `sortMergeJoin`, `shuffledHashJoin`, `expand`, `union`, `limit`, `generate`, `filescan`, `batchscan`, ...) | mostly `true` | Disable offload of a specific operator | Isolate bugs/perf issues |
-| `spark.gluten.sql.columnar.forceShuffledHashJoin` | `true` | Prefer shuffled hash join (SHJ) over sort-merge join (SMJ) | Set `false` if hash build sides are huge and spill poorly |
-| `spark.gluten.sql.columnar.scanOnly` | `false` | Offload only scan (+ filter on scan) | Conservative rollout |
-| `spark.gluten.sql.columnar.fallback.expressions.threshold` | `50` | Max expression tree depth for offload | Very deep generated expressions |
-| `spark.gluten.sql.columnar.wholeStage.fallback.threshold` | `-1` | Stage-level fallback by transition count (AQE) | Avoid many tiny native islands |
-| `spark.gluten.sql.columnar.query.fallback.threshold` | `-1` | Query-level fallback (non-AQE) | Same, without AQE |
-| `spark.gluten.sql.columnar.fallback.ignoreRowToColumnar` | `true` | Don't count R2C in transition cost | — |
-| `spark.gluten.sql.columnar.fallback.preferColumnar` | `true` | Keep Gluten plan when vanilla isn't cheaper | — |
-| `spark.gluten.sql.ansiFallback.enabled` | `true` | With ANSI mode on, fall back everything | Set `false` to try native ANSI support |
-| `spark.gluten.sql.columnar.partial.project` | `true` | Partial project for unsupported expressions | Disable if partial project misbehaves |
-| `spark.gluten.sql.columnar.physicalJoinOptimizeEnable` | `false` | Enable `FallbackMultiCodegens` | Rarely |
-| `spark.gluten.sql.enable.native.validation` | `true` (internal) | Turn off native validation | Debug only — risky |
-| `spark.gluten.sql.validation.logLevel` | `WARN` | Log level for fallback reasons | Lower to `INFO`/`DEBUG` to quiet |
-| `spark.gluten.sql.validation.printStackOnFailure` | `false` | Log stack traces on validation failure | Debug |
-| `spark.gluten.sql.validation.failFast` | `true` | Stop after schema validation failure | Debug |
-| `spark.gluten.sql.columnar.fallbackReporter` | `true` (internal) | Enable reporter rule | — |
-| `spark.gluten.sql.columnar.failOnFallback` | `false` (internal) | Throw if anything falls back | CI / tests to catch regressions |
-| `spark.gluten.sql.injectNativePlanStringToExplain` | `false` | Print Velox plan in EXPLAIN | Debugging plans |
+- `spark.gluten.enabled`, default `true`: Session switch for all Gluten rules. *When to change:* Disable per session for A/B.
+- `spark.gluten.sql.columnar.<op>` (e.g. `filter`, `project`, `sort`, `window`, `hashagg`, `shuffle`, `broadcastJoin`, `sortMergeJoin`, `shuffledHashJoin`, `expand`, `union`, `limit`, `generate`, `filescan`, `batchscan`, ...), default mostly `true`: Disable offload of a specific operator. *When to change:* Isolate bugs/perf issues.
+- `spark.gluten.sql.columnar.forceShuffledHashJoin`, default `true`: Prefer shuffled hash join (SHJ) over sort-merge join (SMJ) *When to change:* Set `false` if hash build sides are huge and spill poorly.
+- `spark.gluten.sql.columnar.scanOnly`, default `false`: Offload only scan (+ filter on scan) *When to change:* Conservative rollout.
+- `spark.gluten.sql.columnar.fallback.expressions.threshold`, default `50`: Max expression tree depth for offload. *When to change:* Very deep generated expressions.
+- `spark.gluten.sql.columnar.wholeStage.fallback.threshold`, default `-1`: Stage-level fallback by transition count (AQE) *When to change:* Avoid many tiny native islands.
+- `spark.gluten.sql.columnar.query.fallback.threshold`, default `-1`: Query-level fallback (non-AQE) *When to change:* Same, without AQE.
+- `spark.gluten.sql.columnar.fallback.ignoreRowToColumnar`, default `true`: Don't count R2C in transition cost.
+- `spark.gluten.sql.columnar.fallback.preferColumnar`, default `true`: Keep Gluten plan when vanilla isn't cheaper.
+- `spark.gluten.sql.ansiFallback.enabled`, default `true`: With ANSI mode on, fall back everything. *When to change:* Set `false` to try native ANSI support.
+- `spark.gluten.sql.columnar.partial.project`, default `true`: Partial project for unsupported expressions. *When to change:* Disable if partial project misbehaves.
+- `spark.gluten.sql.columnar.physicalJoinOptimizeEnable`, default `false`: Enable `FallbackMultiCodegens` *When to change:* Rarely.
+- `spark.gluten.sql.enable.native.validation`, default `true` (internal): Turn off native validation. *When to change:* Debug only — risky.
+- `spark.gluten.sql.validation.logLevel`, default `WARN`: Log level for fallback reasons. *When to change:* Lower to `INFO`/`DEBUG` to quiet.
+- `spark.gluten.sql.validation.printStackOnFailure`, default `false`: Log stack traces on validation failure. *When to change:* Debug.
+- `spark.gluten.sql.validation.failFast`, default `true`: Stop after schema validation failure. *When to change:* Debug.
+- `spark.gluten.sql.columnar.fallbackReporter`, default `true` (internal): Enable reporter rule.
+- `spark.gluten.sql.columnar.failOnFallback`, default `false` (internal): Throw if anything falls back. *When to change:* CI / tests to catch regressions.
+- `spark.gluten.sql.injectNativePlanStringToExplain`, default `false`: Print Velox plan in EXPLAIN. *When to change:* Debugging plans.
 
 ---
 

@@ -103,7 +103,8 @@ Spark has already planned `FilePartition`s (respecting `spark.sql.files.maxParti
 LocalFilesBuilder.makeLocalFiles(
   partitionIndex,
   paths, starts, lengths, fileSizes, modificationTimes,
-  partitionColumns,          // Map[colName -> value] per file (from Hive-style partition dirs)
+  // Map[colName -> value] per file (from Hive-style partition dirs)
+  partitionColumns,
   metadataColumns,           // _metadata.file_path etc.
   fileFormat,                // ParquetReadFormat / OrcReadFormat / ...
   preferredLocations,        // soft affinity / HDFS locality
@@ -135,13 +136,11 @@ With `spark.gluten.soft-affinity.enabled=true`, `SoftAffinity` assigns each file
 
 Each is a **component** (built with its Maven profile) that injects offload rules for its scans:
 
-| Format | Component / module | Read support (v1.7.0 docs) | Notes |
-|---|---|---|---|
-| Iceberg | `VeloxIcebergComponent`, `gluten-iceberg` | copy-on-write (COW) & merge-on-read (MOR); position deletes offloaded; **equality deletes fall back** (`supportIcebergEqualityDeleteRead=false`) | Writes fall back by default; partitioned tables may partially fall back due to unsupported `StaticInvoke` functions ([VeloxIceberg.md](../../docs/get-started/VeloxIceberg.md)) |
-| Delta | `VeloxDeltaComponent` (+ `VeloxDelta33/40WriteComponent`), `gluten-delta` | Read incl. column mapping; deletion vectors partial | Native write experimental (`...velox.delta.enableNativeWrite=false` by default) ([VeloxDelta.md](../../docs/get-started/VeloxDelta.md)) |
-| Hudi | `VeloxHudiComponent`, `gluten-hudi` | **Copy-on-write (COW) only** | |
-| Paimon | `VeloxPaimonComponent`, `gluten-paimon` | **Non-PK tables**, Spark ≥ 3.3 | |
-| Kafka | `gluten-kafka` (`MicroBatchScanExecTransformer`) | Streaming micro-batch source | |
+- **Iceberg** (`VeloxIcebergComponent`, `gluten-iceberg`): copy-on-write (COW) & merge-on-read (MOR); position deletes offloaded; **equality deletes fall back** (`supportIcebergEqualityDeleteRead=false`) Writes fall back by default; partitioned tables may partially fall back due to unsupported `StaticInvoke` functions ([VeloxIceberg.md](../../docs/get-started/VeloxIceberg.md))
+- **Delta** (`VeloxDeltaComponent` (+ `VeloxDelta33/40WriteComponent`), `gluten-delta`): Read incl. column mapping; deletion vectors partial. Native write experimental (`...velox.delta.enableNativeWrite=false` by default) ([VeloxDelta.md](../../docs/get-started/VeloxDelta.md))
+- **Hudi** (`VeloxHudiComponent`, `gluten-hudi`): **Copy-on-write (COW) only**.
+- **Paimon** (`VeloxPaimonComponent`, `gluten-paimon`): **Non-PK tables**, Spark ≥ 3.3.
+- **Kafka** (`gluten-kafka` (`MicroBatchScanExecTransformer`)): Streaming micro-batch source.
 
 ---
 

@@ -47,24 +47,22 @@ Velox allocates with its own allocator outside the JVM heap. Spark's **off-heap*
 
 ## 2. Key concepts
 
-| Concept | Side | Description | Code |
-|---|---|---|---|
-| `MemoryTarget` | JVM | `borrow(size)`, `repay(size)`, `usedBytes()` | [MemoryTarget.java](../../gluten-core/src/main/java/org/apache/gluten/memory/memtarget/MemoryTarget.java) |
-| `TreeMemoryTarget` | JVM | Target with children, capacity, and a `Spiller` | [TreeMemoryTarget.java](../../gluten-core/src/main/java/org/apache/gluten/memory/memtarget/TreeMemoryTarget.java) |
-| `TreeMemoryConsumer` | JVM | The Spark `MemoryConsumer` at the root of the tree; implements `spill()` by spilling the tree | [TreeMemoryConsumer.java](../../gluten-core/src/main/java/org/apache/gluten/memory/memtarget/spark/TreeMemoryConsumer.java) |
-| `TreeMemoryConsumers.Factory` | JVM | Per-task factory; `legacyRoot()` (unlimited) or `isolatedRoot()` (capped) | [TreeMemoryConsumers.java](../../gluten-core/src/main/java/org/apache/gluten/memory/memtarget/spark/TreeMemoryConsumers.java) |
-| `MemoryTargets` | JVM | Factory composing decorators | [MemoryTargets.java](../../gluten-core/src/main/java/org/apache/gluten/memory/memtarget/MemoryTargets.java) |
-| `RetryOnOomMemoryTarget` | JVM | On short grant, spill the whole task tree and retry once | [RetryOnOomMemoryTarget.java](../../gluten-core/src/main/java/org/apache/gluten/memory/memtarget/RetryOnOomMemoryTarget.java) |
-| `ThrowOnOomMemoryTarget` | JVM | GC + retry with backoff; then throw with a memory report | [ThrowOnOomMemoryTarget.java](../../gluten-core/src/main/java/org/apache/gluten/memory/memtarget/ThrowOnOomMemoryTarget.java) |
-| `OverAcquire` | JVM | Probe-acquire extra `ratio × used` memory to make sure headroom exists | [OverAcquire.java](../../gluten-core/src/main/java/org/apache/gluten/memory/memtarget/OverAcquire.java) |
-| `DynamicOffHeapSizingMemoryTarget` | JVM | Quota check against JVM heap when dynamic sizing is on | [DynamicOffHeapSizingMemoryTarget.java](../../gluten-core/src/main/java/org/apache/gluten/memory/memtarget/DynamicOffHeapSizingMemoryTarget.java) |
-| `NativeMemoryManager` | JVM | Per-runtime handle to native memory manager; owns the reservation listener & spillers | [NativeMemoryManager.scala](../../gluten-arrow/src/main/scala/org/apache/gluten/memory/NativeMemoryManager.scala) |
-| `ReservationListeners` / `ManagedReservationListener` | JVM | Bridge called from native to borrow/repay | [ReservationListeners.java](../../gluten-arrow/src/main/java/org/apache/gluten/memory/listener/ReservationListeners.java), [ManagedReservationListener.java](../../gluten-arrow/src/main/java/org/apache/gluten/memory/listener/ManagedReservationListener.java) |
-| `GlobalOffHeapMemory` | JVM | Process-wide target using Spark storage memory | [GlobalOffHeapMemory.scala](../../gluten-core/src/main/scala/org/apache/spark/memory/GlobalOffHeapMemory.scala), [GlobalOffHeapMemoryTarget.scala](../../gluten-core/src/main/scala/org/apache/spark/memory/GlobalOffHeapMemoryTarget.scala) |
-| `AllocationListener` / `BlockAllocationListener` | C++ | Listener interface; block-granular reservation | [AllocationListener.h](../../cpp/core/memory/AllocationListener.h) |
-| `VeloxMemoryManager` | C++ | Velox `MemoryManager` + root/leaf pools + Arrow pools | [VeloxMemoryManager.cc](../../cpp/velox/memory/VeloxMemoryManager.cc) |
-| `ListenableArbitrator` | C++ | Velox `MemoryArbitrator` that asks the listener for capacity | same file |
-| `ArrowMemoryPool` | C++ | Arrow pool (used by shuffle, etc.) charging the same listener | [ArrowMemoryPool.cc](../../cpp/core/memory/ArrowMemoryPool.cc) |
+- `MemoryTarget` (JVM): `borrow(size)`, `repay(size)`, `usedBytes()` Code: [MemoryTarget.java](../../gluten-core/src/main/java/org/apache/gluten/memory/memtarget/MemoryTarget.java)
+- `TreeMemoryTarget` (JVM): Target with children, capacity, and a `Spiller` Code: [TreeMemoryTarget.java](../../gluten-core/src/main/java/org/apache/gluten/memory/memtarget/TreeMemoryTarget.java)
+- `TreeMemoryConsumer` (JVM): The Spark `MemoryConsumer` at the root of the tree; implements `spill()` by spilling the tree. Code: [TreeMemoryConsumer.java](../../gluten-core/src/main/java/org/apache/gluten/memory/memtarget/spark/TreeMemoryConsumer.java)
+- `TreeMemoryConsumers.Factory` (JVM): Per-task factory; `legacyRoot()` (unlimited) or `isolatedRoot()` (capped) Code: [TreeMemoryConsumers.java](../../gluten-core/src/main/java/org/apache/gluten/memory/memtarget/spark/TreeMemoryConsumers.java)
+- `MemoryTargets` (JVM): Factory composing decorators. Code: [MemoryTargets.java](../../gluten-core/src/main/java/org/apache/gluten/memory/memtarget/MemoryTargets.java)
+- `RetryOnOomMemoryTarget` (JVM): On short grant, spill the whole task tree and retry once. Code: [RetryOnOomMemoryTarget.java](../../gluten-core/src/main/java/org/apache/gluten/memory/memtarget/RetryOnOomMemoryTarget.java)
+- `ThrowOnOomMemoryTarget` (JVM): GC + retry with backoff; then throw with a memory report. Code: [ThrowOnOomMemoryTarget.java](../../gluten-core/src/main/java/org/apache/gluten/memory/memtarget/ThrowOnOomMemoryTarget.java)
+- `OverAcquire` (JVM): Probe-acquire extra `ratio × used` memory to make sure headroom exists. Code: [OverAcquire.java](../../gluten-core/src/main/java/org/apache/gluten/memory/memtarget/OverAcquire.java)
+- `DynamicOffHeapSizingMemoryTarget` (JVM): Quota check against JVM heap when dynamic sizing is on. Code: [DynamicOffHeapSizingMemoryTarget.java](../../gluten-core/src/main/java/org/apache/gluten/memory/memtarget/DynamicOffHeapSizingMemoryTarget.java)
+- `NativeMemoryManager` (JVM): Per-runtime handle to native memory manager; owns the reservation listener & spillers. Code: [NativeMemoryManager.scala](../../gluten-arrow/src/main/scala/org/apache/gluten/memory/NativeMemoryManager.scala)
+- `ReservationListeners` / `ManagedReservationListener` (JVM): Bridge called from native to borrow/repay. Code: [ReservationListeners.java](../../gluten-arrow/src/main/java/org/apache/gluten/memory/listener/ReservationListeners.java), [ManagedReservationListener.java](../../gluten-arrow/src/main/java/org/apache/gluten/memory/listener/ManagedReservationListener.java)
+- `GlobalOffHeapMemory` (JVM): Process-wide target using Spark storage memory. Code: [GlobalOffHeapMemory.scala](../../gluten-core/src/main/scala/org/apache/spark/memory/GlobalOffHeapMemory.scala), [GlobalOffHeapMemoryTarget.scala](../../gluten-core/src/main/scala/org/apache/spark/memory/GlobalOffHeapMemoryTarget.scala)
+- `AllocationListener` / `BlockAllocationListener` (C++): Listener interface; block-granular reservation. Code: [AllocationListener.h](../../cpp/core/memory/AllocationListener.h)
+- `VeloxMemoryManager` (C++): Velox `MemoryManager` + root/leaf pools + Arrow pools. Code: [VeloxMemoryManager.cc](../../cpp/velox/memory/VeloxMemoryManager.cc)
+- `ListenableArbitrator` (C++): Velox `MemoryArbitrator` that asks the listener for capacity. Code: same file
+- `ArrowMemoryPool` (C++): Arrow pool (used by shuffle, etc.) charging the same listener. Code: [ArrowMemoryPool.cc](../../cpp/core/memory/ArrowMemoryPool.cc)
 
 ---
 
@@ -87,7 +85,8 @@ Each runtime node also reports the native pool usage below it (root, `default_le
 Each `Runtime` → one `NativeMemoryManager` → one `ReservationListener` → one consumer node (plus an `.OverAcquire` sibling). The decorator chain around a node:
 
 ```text
-ThrowOnOom( OverAcquire( [DynamicOffHeapSizing]( RetryOnOom( TreeNode ) ), [DynamicOffHeapSizing]( OverAcquireNode ), ratio ) )
+ThrowOnOom( OverAcquire( [DynamicOffHeapSizing]( RetryOnOom( TreeNode ) ),
+    [DynamicOffHeapSizing]( OverAcquireNode ), ratio ) )
 ```
 
 (`RetryOnOom` is added by `MemoryTargets.newConsumer` only in legacy mode with more than one task slot; `DynamicOffHeapSizing` only if enabled.)
@@ -119,11 +118,15 @@ Scenario: a Velox hash aggregation inserts rows and its pool needs 20MB more.
 
    ```cpp
    void growCapacityInternal(velox::memory::MemoryPool* pool, uint64_t bytes) {
-     if (pool->freeBytes() > bytes && growPool(pool, 0, bytes)) return;        // enough free capacity
-     auto reclaimedFreeBytes = shrinkPool(pool, 0);                              // release unused capacity first
-     auto neededBytes = velox::bits::roundUp(bytes - reclaimedFreeBytes, memoryPoolTransferCapacity_);
+     // enough free capacity
+     if (pool->freeBytes() > bytes && growPool(pool, 0, bytes)) return;
+     // release unused capacity first
+     auto reclaimedFreeBytes = shrinkPool(pool, 0);
+     auto neededBytes = velox::bits::roundUp(bytes - reclaimedFreeBytes,
+         memoryPoolTransferCapacity_);
      try {
-       listener_->allocationChanged(neededBytes);                                // ask Spark (may throw)
+       // ask Spark (may throw)
+       listener_->allocationChanged(neededBytes);
      } catch (const std::exception&) {
        listener_->allocationChanged(-reclaimedFreeBytes);
        std::rethrow_exception(std::current_exception());
@@ -148,7 +151,8 @@ Typical failure message (abbreviated, illustrative):
 
 ```text
 org.apache.gluten.memory.memtarget.ThrowOnOomMemoryTarget$OutOfMemoryException:
-Not enough spark off-heap execution memory. Acquired: 8.0 MiB, granted: 0.0 B. Try tweaking config option
+Not enough spark off-heap execution memory. Acquired: 8.0 MiB,
+    granted: 0.0 B. Try tweaking config option
 spark.memory.offHeap.size to get larger space to run this application ...
 Current config settings:
   spark.gluten.memory.offHeap.size.in.bytes=...
@@ -173,10 +177,8 @@ This dump is the best place to see **which operator** held memory.
 
 ### 5.1 Legacy (default) vs. isolated
 
-| Mode | Root | Behavior | When to use |
-|---|---|---|---|
-| Legacy (`spark.gluten.memory.isolation=false`) | `Capacity[unlimited]` | A task can grab as much off-heap as Spark gives it (Spark's own per-task fairness `1/2N..1/N` applies). Adds `RetryOnOom` when task slots > 1. | Default |
-| Isolated (`spark.gluten.memory.isolation=true`) | `Capacity[conservative per-task size]` | Caps each task's native memory at `off-heap × (1 − storageFraction) / slots` | Concurrent queries in one session; protects against non-spillable large allocations (config doc) |
+- **Legacy (`spark.gluten.memory.isolation=false`)**, root `Capacity[unlimited]`: A task can grab as much off-heap as Spark gives it (Spark's own per-task fairness `1/2N..1/N` applies). Adds `RetryOnOom` when task slots > 1. *Use when:* Default.
+- **Isolated (`spark.gluten.memory.isolation=true`)**, root `Capacity[conservative per-task size]`: Caps each task's native memory at `off-heap × (1 − storageFraction) / slots` *Use when:* Concurrent queries in one session; protects against non-spillable large allocations (config doc)
 
 ### 5.2 Over-acquire
 
@@ -205,10 +207,13 @@ Cluster: 16 cores, 64GB container, Velox backend.
 
 ```text
 spark.executor.cores=8
-spark.executor.memory=12g                 # JVM heap (Spark row ops, driver-side stuff, Arrow Java)
+# JVM heap (Spark row ops, driver-side stuff, Arrow Java)
+spark.executor.memory=12g
 spark.memory.offHeap.enabled=true
-spark.memory.offHeap.size=36g             # native execution + broadcast (storage) budget
-spark.executor.memoryOverhead=10g         # untracked native + JVM overhead (>= 0.3 × off-heap recommended)
+# native execution + broadcast (storage) budget
+spark.memory.offHeap.size=36g
+# untracked native + JVM overhead (>= 0.3 × off-heap recommended)
+spark.executor.memoryOverhead=10g
 ```
 
 Derived by Gluten (driver log / Spark UI environment):

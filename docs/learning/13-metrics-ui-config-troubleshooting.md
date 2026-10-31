@@ -101,10 +101,14 @@ Configs are built with `buildConf` (dynamic, session-settable) or `buildStaticCo
 
 ### 3.2 How configs reach native code
 
-| Path | When | What is forwarded | Code |
-|---|---|---|---|
-| **Backend config** | Once per JVM at `NativeBackendInitializer.initialize` | `GlutenConfig.getNativeBackendConf`: backend-prefixed keys (`spark.gluten.sql.columnar.backend.velox.*`), Hadoop/S3/GCS/ABFS settings, task slots, shuffle codec, selected Spark SQL keys | [NativeBackendInitializer.java](../../gluten-arrow/src/main/java/org/apache/gluten/init/NativeBackendInitializer.java) |
-| **Session config** | Per `Runtime` (task) | `GlutenConfig.getNativeSessionConf`: a fixed set of `nativeKeys` (debug, save dir, task off-heap size, ...) + defaults for case sensitivity, ignore missing files, timezone, ANSI, map key dedup, legacy time parser + byte-size Spark configs (spill buffers, shuffle file buffer) + **all dynamic `spark.gluten.sql.columnar.backend.velox.*`** + all `spark.gluten.velox.*` + UGI tokens | [GlutenConfig.scala](../../gluten-substrait/src/main/scala/org/apache/gluten/config/GlutenConfig.scala#L535-L612) |
+- **Backend config**
+  - When: Once per JVM at `NativeBackendInitializer.initialize`
+  - Forwards: `GlutenConfig.getNativeBackendConf`: backend-prefixed keys (`spark.gluten.sql.columnar.backend.velox.*`), Hadoop/S3/GCS/ABFS settings, task slots, shuffle codec, selected Spark SQL keys
+  - Code: [NativeBackendInitializer.java](../../gluten-arrow/src/main/java/org/apache/gluten/init/NativeBackendInitializer.java)
+- **Session config**
+  - When: Per `Runtime` (task)
+  - Forwards: `GlutenConfig.getNativeSessionConf`: a fixed set of `nativeKeys` (debug, save dir, task off-heap size, ...) + defaults for case sensitivity, ignore missing files, timezone, ANSI, map key dedup, legacy time parser + byte-size Spark configs (spill buffers, shuffle file buffer) + **all dynamic `spark.gluten.sql.columnar.backend.velox.*`** + all `spark.gluten.velox.*` + UGI tokens
+  - Code: [GlutenConfig.scala](../../gluten-substrait/src/main/scala/org/apache/gluten/config/GlutenConfig.scala#L535-L612)
 
 Native code turns session config into Velox `QueryConfig` and Hive connector session config in `WholeStageResultIterator::getQueryContextConf` / `createNewVeloxQueryCtx`.
 
@@ -229,14 +233,16 @@ df.collect()
 import org.apache.spark.sql.execution.GlutenImplicits._
 val s = df.fallbackSummary()
 println(s"native=${s.numGlutenNodes} fallback=${s.numFallbackNodes}")
-s.fallbackNodeToReason.foreach(_.foreach { case (node, reason) => println(s"$node -> $reason") })
+s.fallbackNodeToReason.foreach(_.foreach { case (node,
+    reason) => println(s"$node -> $reason") })
 ```
 
 Output (illustrative; node ids vary, but the reason text comes from `ExpressionConverter`):
 
 ```text
 native=4 fallback=1
-002 Project -> ... Not supported to map spark function name to substrait function name: (id#0L + 1), class name: Add.
+002 Project -> ... Not supported to map spark function name to substrait
+    function name: (id#0L + 1), class name: Add.
 ```
 
 How to read and act on it:
@@ -258,20 +264,27 @@ How to read and act on it:
 The message is built in [ThrowOnOomMemoryTarget.java](../../gluten-core/src/main/java/org/apache/gluten/memory/memtarget/ThrowOnOomMemoryTarget.java). Its structure, annotated. Values and node names are illustrative: tree names come from `Runtime` names such as `NativePlanEvaluator-<n>` and `ShuffleWriter`, and Velox operator pools are named `op.<planNodeId>.<pipeline>.<driver>.<Operator>`.
 
 ```text
-Not enough spark off-heap execution memory. Acquired: 64.0 MiB, granted: 8.0 MiB. Try tweaking config option
-spark.memory.offHeap.size ...                                  <- (1) how much was asked vs. granted
+# (1) how much was asked vs. granted
+Not enough spark off-heap execution memory. Acquired: 64.0 MiB,
+    granted: 8.0 MiB. Try tweaking config option
+    spark.memory.offHeap.size ...
 Current config settings:
-	spark.memory.offHeap.enabled=true                          <- (2) the memory configs in effect
-	spark.gluten.memory.dynamic.offHeap.sizing.enabled=N/A
-	spark.gluten.memory.offHeap.size.in.bytes=4.0 GiB
-	spark.gluten.memory.task.offHeap.size.in.bytes=1024.0 MiB
-	spark.gluten.memory.conservative.task.offHeap.size.in.bytes=512.0 MiB
-Memory consumer stats:                                          <- (3) the memory-target tree for this task
-	Task.57:                                  Current used bytes: 1016.0 MiB, peak bytes: N/A
-	\- Gluten.Tree.0:                         Current used bytes: 1016.0 MiB, peak bytes: 1016.0 MiB
-	   +- NativePlanEvaluator-0.0:            Current used bytes:  960.0 MiB, peak bytes:  960.0 MiB   <- native stage runtime
-	   |  \- ... op.1.0.0.HashBuild:          Current used bytes:  900.0 MiB, ...   <- the operator holding the memory
-	   \- ShuffleWriter.0:                    Current used bytes:   56.0 MiB, ...
+  # (2) the memory configs in effect
+  spark.memory.offHeap.enabled=true
+  spark.gluten.memory.dynamic.offHeap.sizing.enabled=N/A
+  spark.gluten.memory.offHeap.size.in.bytes=4.0 GiB
+  spark.gluten.memory.task.offHeap.size.in.bytes=1024.0 MiB
+  spark.gluten.memory.conservative.task.offHeap.size.in.bytes=512.0 MiB
+# (3) the memory-target tree for this task
+Memory consumer stats:
+  Task.57: Current used bytes: 1016.0 MiB, peak bytes: N/A
+  \- Gluten.Tree.0: Current used bytes: 1016.0 MiB, peak bytes: 1016.0 MiB
+     # native stage runtime
+     +- NativePlanEvaluator-0.0: Current used bytes: 960.0 MiB,
+            peak bytes: 960.0 MiB
+     # the operator holding the memory
+     |  \- ... op.1.0.0.HashBuild: Current used bytes: 900.0 MiB, ...
+     \- ShuffleWriter.0: Current used bytes: 56.0 MiB, ...
 ```
 
 How to act:

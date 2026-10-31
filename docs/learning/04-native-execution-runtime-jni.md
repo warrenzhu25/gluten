@@ -34,22 +34,20 @@
 
 ## 2. Key concepts
 
-| Concept | Side | Description | Code |
-|---|---|---|---|
-| `GlutenWholeStageColumnarRDD` | JVM | RDD for stages **with** leaf scans (partitions carry plan + splits) | [GlutenWholeStageColumnarRDD.scala](../../gluten-substrait/src/main/scala/org/apache/gluten/execution/GlutenWholeStageColumnarRDD.scala) |
-| `WholeStageZippedPartitionsRDD` | JVM | RDD for stages **without** leaf scans; zips input RDD partitions | [WholeStageZippedPartitionsRDD.scala](../../gluten-substrait/src/main/scala/org/apache/gluten/execution/WholeStageZippedPartitionsRDD.scala) |
-| `VeloxIteratorApi` | JVM | `genFirstStageIterator` / `genFinalStageIterator` | [VeloxIteratorApi.scala](../../backends-velox/src/main/scala/org/apache/gluten/backendsapi/velox/VeloxIteratorApi.scala) |
-| `NativePlanEvaluator` | JVM | Creates native kernels; registers the plan **spiller** | [NativePlanEvaluator.java](../../gluten-arrow/src/main/java/org/apache/gluten/vectorized/NativePlanEvaluator.java) |
-| `ColumnarBatchOutIterator` | JVM | Java iterator over native output (`nativeHasNext`, `nativeNext`, `nativeSpill`, `nativeClose`) | [ColumnarBatchOutIterator.java](../../gluten-arrow/src/main/java/org/apache/gluten/vectorized/ColumnarBatchOutIterator.java) |
-| `ColumnarBatchInIterator` | JVM | Adapter that native code calls to pull upstream batches | [ColumnarBatchInIterator.java](../../gluten-arrow/src/main/java/org/apache/gluten/vectorized/ColumnarBatchInIterator.java) |
-| `Runtime` / `VeloxRuntime` | both | Per-task native context: plan, splits, memory manager, Velox config, object store | [Runtime.scala](../../gluten-arrow/src/main/scala/org/apache/gluten/runtime/Runtime.scala), [VeloxRuntime.cc](../../cpp/velox/compute/VeloxRuntime.cc) |
-| `ResultIterator` | C++ | Generic iterator wrapper used by JNI | `cpp/core/compute/ResultIterator.h` |
-| `WholeStageResultIterator` | C++ | Owns the Velox `TaskCursor`, adds splits, collects metrics, spills | [WholeStageResultIterator.cc](../../cpp/velox/compute/WholeStageResultIterator.cc) |
-| `JniColumnarBatchIterator` | C++ | Calls back into `ColumnarBatchInIterator` | [JniCommon.h](../../cpp/core/jni/JniCommon.h), [JniCommon.cc](../../cpp/core/jni/JniCommon.cc) |
-| `ObjectStore` | C++ | Handle → `shared_ptr` registry per runtime | [ObjectStore.h](../../cpp/core/utils/ObjectStore.h) |
-| `JniWrapper.cc` | C++ | Most JNI entry points | [JniWrapper.cc](../../cpp/core/jni/JniWrapper.cc) |
-| `TaskResources` | JVM | Task-scoped resource registry | [TaskResources.scala](../../gluten-core/src/main/scala/org/apache/spark/task/TaskResources.scala) |
-| `Iterators` | JVM | Wrapper builder: cleanup, timing, interruption, invocation protection | [Iterators.scala](../../gluten-core/src/main/scala/org/apache/gluten/iterator/Iterators.scala) |
+- `GlutenWholeStageColumnarRDD` (JVM): RDD for stages **with** leaf scans (partitions carry plan + splits) Code: [GlutenWholeStageColumnarRDD.scala](../../gluten-substrait/src/main/scala/org/apache/gluten/execution/GlutenWholeStageColumnarRDD.scala)
+- `WholeStageZippedPartitionsRDD` (JVM): RDD for stages **without** leaf scans; zips input RDD partitions. Code: [WholeStageZippedPartitionsRDD.scala](../../gluten-substrait/src/main/scala/org/apache/gluten/execution/WholeStageZippedPartitionsRDD.scala)
+- `VeloxIteratorApi` (JVM): `genFirstStageIterator` / `genFinalStageIterator` Code: [VeloxIteratorApi.scala](../../backends-velox/src/main/scala/org/apache/gluten/backendsapi/velox/VeloxIteratorApi.scala)
+- `NativePlanEvaluator` (JVM): Creates native kernels; registers the plan **spiller**. Code: [NativePlanEvaluator.java](../../gluten-arrow/src/main/java/org/apache/gluten/vectorized/NativePlanEvaluator.java)
+- `ColumnarBatchOutIterator` (JVM): Java iterator over native output (`nativeHasNext`, `nativeNext`, `nativeSpill`, `nativeClose`) Code: [ColumnarBatchOutIterator.java](../../gluten-arrow/src/main/java/org/apache/gluten/vectorized/ColumnarBatchOutIterator.java)
+- `ColumnarBatchInIterator` (JVM): Adapter that native code calls to pull upstream batches. Code: [ColumnarBatchInIterator.java](../../gluten-arrow/src/main/java/org/apache/gluten/vectorized/ColumnarBatchInIterator.java)
+- `Runtime` / `VeloxRuntime` (both): Per-task native context: plan, splits, memory manager, Velox config, object store. Code: [Runtime.scala](../../gluten-arrow/src/main/scala/org/apache/gluten/runtime/Runtime.scala), [VeloxRuntime.cc](../../cpp/velox/compute/VeloxRuntime.cc)
+- `ResultIterator` (C++): Generic iterator wrapper used by JNI. Code: `cpp/core/compute/ResultIterator.h`
+- `WholeStageResultIterator` (C++): Owns the Velox `TaskCursor`, adds splits, collects metrics, spills. Code: [WholeStageResultIterator.cc](../../cpp/velox/compute/WholeStageResultIterator.cc)
+- `JniColumnarBatchIterator` (C++): Calls back into `ColumnarBatchInIterator` Code: [JniCommon.h](../../cpp/core/jni/JniCommon.h), [JniCommon.cc](../../cpp/core/jni/JniCommon.cc)
+- `ObjectStore` (C++): Handle → `shared_ptr` registry per runtime. Code: [ObjectStore.h](../../cpp/core/utils/ObjectStore.h)
+- `JniWrapper.cc` (C++): Most JNI entry points. Code: [JniWrapper.cc](../../cpp/core/jni/JniWrapper.cc)
+- `TaskResources` (JVM): Task-scoped resource registry. Code: [TaskResources.scala](../../gluten-core/src/main/scala/org/apache/spark/task/TaskResources.scala)
+- `Iterators` (JVM): Wrapper builder: cleanup, timing, interruption, invocation protection. Code: [Iterators.scala](../../gluten-core/src/main/scala/org/apache/gluten/iterator/Iterators.scala)
 
 ---
 
@@ -85,9 +83,11 @@ Everything below runs on the Spark task thread. Data flows in two directions.
 
 ```scala
 val (inputPartition, inputColumnarRDDPartitions) = castNativePartition(split)
-val inputIterators = rdds.getIterators(inputColumnarRDDPartitions, context)   // upstream iterators
+// upstream iterators
+val inputIterators = rdds.getIterators(inputColumnarRDDPartitions, context)
 BackendsApiManager.getIteratorApiInstance.genFirstStageIterator(
-  inputPartition, context, pipelineTime, updateInputMetrics, updateNativeMetrics, split.index, inputIterators, enableCudf)
+  inputPartition, context, pipelineTime, updateInputMetrics,
+      updateNativeMetrics, split.index, inputIterators, enableCudf)
 ```
 
 Preferred locations come from split infos (enables locality / soft affinity).
@@ -97,16 +97,24 @@ Preferred locations come from split infos (enables locality / soft affinity).
 `VeloxIteratorApi.genFirstStageIterator` ([source](../../backends-velox/src/main/scala/org/apache/gluten/backendsapi/velox/VeloxIteratorApi.scala#L185-L240)):
 
 ```scala
-val columnarNativeIterators = inputIterators.map(iter => new ColumnarBatchInIterator(backendName, iter.asJava))
-val transKernel = NativePlanEvaluator.create(backendName, extraConf)      // gets/creates the task Runtime
+val columnarNativeIterators = inputIterators.map(iter =>
+    new ColumnarBatchInIterator(backendName, iter.asJava))
+// gets/creates the task Runtime
+val transKernel = NativePlanEvaluator.create(backendName, extraConf)
 val splitInfoByteArray = inputPartition.splitInfos.map(_.toProtobuf.toByteArray)
-val spillDirPath = SparkDirectoryUtil.get().namespace("gluten-spill").mkChildDirRoundRobin(UUID...).getAbsolutePath
-val resIter = transKernel.createKernelWithBatchIterator(plan, splitInfoByteArray, columnarNativeIterators, partitionIndex, spillDirPath)
+val spillDirPath =
+    SparkDirectoryUtil.get().namespace("gluten-spill").mkChildDirRoundRobin(
+        UUID...).getAbsolutePath
+val resIter = transKernel.createKernelWithBatchIterator(plan,
+    splitInfoByteArray, columnarNativeIterators, partitionIndex, spillDirPath)
 resIter.noMoreSplits()
 Iterators.wrap(resIter.asScala)
-  .protectInvocationFlow()                                  // safe repeated hasNext after close
-  .recycleIterator { updateNativeMetrics(itrMetrics.fetch(resIter)); updateInputMetrics(...); resIter.close() }
-  .recyclePayload(batch => batch.close())                  // close each batch after consumer is done
+  // safe repeated hasNext after close
+  .protectInvocationFlow()
+  .recycleIterator { updateNativeMetrics(itrMetrics.fetch(resIter));
+      updateInputMetrics(...); resIter.close() }
+  // close each batch after consumer is done
+  .recyclePayload(batch => batch.close())
   .collectLifeMillis(millis => pipelineTime += millis)
   .asInterruptible(context)                                 // honor task kill
   .create()
@@ -119,14 +127,18 @@ Iterators.wrap(resIter.asScala)
 From [JniWrapper.cc](../../cpp/core/jni/JniWrapper.cc#L515-L569):
 
 ```cpp
-auto ctx = getRuntime(env, wrapper);                     // VeloxRuntime for this task
+// VeloxRuntime for this task
+auto ctx = getRuntime(env, wrapper);
 ctx->setSparkTaskInfo({stageId, partitionId, taskId});
 if (enableDumping) ctx->enableDumping();
 ctx->parsePlan(planBytes, planSize);
 for (i in splitInfos) ctx->parseSplitInfo(splitBytes, size, i);
-for (idx in batchItrArray)                                // wrap each Java ColumnarBatchInIterator
-  inputIters.push_back(std::make_shared<ResultIterator>(std::make_unique<JniColumnarBatchIterator>(env, iter, ctx, idx)));
-return ctx->saveObject(ctx->createResultIterator(spillDir, inputIters));   // handle
+// wrap each Java ColumnarBatchInIterator
+for (idx in batchItrArray)
+  inputIters.push_back(std::make_shared<ResultIterator>(
+      std::make_unique<JniColumnarBatchIterator>(env, iter, ctx, idx)));
+// handle
+return ctx->saveObject(ctx->createResultIterator(spillDir, inputIters));
 ```
 
 `VeloxRuntime::createResultIterator` ([source](../../cpp/velox/compute/VeloxRuntime.cc#L428-L473)) converts Substrait → Velox plan, separates scan leaves (with `SplitInfo`) from stream leaves (input iterators), constructs `WholeStageResultIterator`, and adds remaining input iterators as **iterator splits**.
@@ -139,16 +151,19 @@ Constructor ([source](../../cpp/velox/compute/WholeStageResultIterator.cc#L111-L
 facebook::velox::exec::CursorParameters params;
 params.planNode = planNode;
 params.maxDrivers = 1;
-params.queryCtx = createNewVeloxQueryCtx();      // QueryConfig from session conf, connector configs,
-                                                 // AsyncDataCache, task aggregate memory pool, spill executor
+// QueryConfig from session conf, connector configs, AsyncDataCache, task
+// aggregate memory pool, spill executor
+params.queryCtx = createNewVeloxQueryCtx();
 params.executionStrategy = velox::core::ExecutionStrategy::kUngrouped;
 params.spillDirectory = spillDir;
 params.serialExecution = true;                   // run on the caller thread
-params.copyResult = false;                       // hand out vectors without copying
+// hand out vectors without copying
+params.copyResult = false;
 params.outputPool = memoryManager_->getLeafMemoryPool();
 cursor_ = velox::exec::TaskCursor::create(params);
 task_ = cursor_->task().get();
-// then build ConnectorSplits for every scan from SplitInfo (Hive/Iceberg/Delta splits, partition keys, metadata cols)
+// then build ConnectorSplits for every scan from SplitInfo (Hive/Iceberg/Delta
+// splits, partition keys, metadata cols)
 ```
 
 - The Velox `QueryCtx` is named `Gluten_Stage_<stage>_TID_<task>_VTID_<n>` — useful when reading Velox logs.
@@ -162,7 +177,8 @@ std::shared_ptr<ColumnarBatch> WholeStageResultIterator::next() {
     if (!cursor_->moveNext()) return nullptr;            // end of stream
     RowVectorPtr vector = cursor_->current();
     if (vector->size() == 0) continue;                   // skip empty batches
-    for (auto& child : vector->children()) child->loadedVector();   // materialize lazy vectors (timed)
+    // materialize lazy vectors (timed)
+    for (auto& child : vector->children()) child->loadedVector();
     return std::make_shared<VeloxColumnarBatch>(vector);
   }
 }
@@ -176,8 +192,10 @@ When a ValueStream (iterator) table scan needs input, Velox asks the iterator sp
 
 ```cpp
 attachCurrentThreadAsDaemonOrThrow(vm_, &env);
-if (!env->CallBooleanMethod(jColumnarBatchItr_, hasNext)) return nullptr;   // calls ColumnarBatchInIterator.hasNext()
-jlong handle = env->CallLongMethod(jColumnarBatchItr_, next);               // returns native handle of the batch
+// calls ColumnarBatchInIterator.hasNext()
+if (!env->CallBooleanMethod(jColumnarBatchItr_, hasNext)) return nullptr;
+// returns native handle of the batch
+jlong handle = env->CallLongMethod(jColumnarBatchItr_, next);
 return ObjectStore::retrieve<ColumnarBatch>(handle);
 ```
 
@@ -189,7 +207,8 @@ On the Java side, `ColumnarBatchInIterator.next()` checks the batch is **offload
 
 ```cpp
 auto iter = ObjectStore::retrieve<ResultIterator>(iterHandle);
-if (!iter->hasNext()) return kInvalidObjectHandle;      // -1 => Java returns null
+// -1 => Java returns null
+if (!iter->hasNext()) return kInvalidObjectHandle;
 auto batch = iter->next();
 return ctx->saveObject(batch);                           // new handle
 ```
@@ -208,7 +227,9 @@ Java wraps the handle with `ColumnarBatches.create(handle)` into a Spark `Column
 ```cpp
 #define JNI_METHOD_START try {
 #define JNI_METHOD_END(fallback_expr) \
-  } catch (std::exception& e) { env->ThrowNew(gluten::getJniErrorState()->glutenExceptionClass(), e.what()); return fallback_expr; }
+  } catch (std::exception& e) { env->ThrowNew(
+      gluten::getJniErrorState()->glutenExceptionClass(), e.what());
+          return fallback_expr; }
 ```
 
 So a `VeloxUserError`/`VeloxRuntimeError` surfaces in Spark as `org.apache.gluten.exception.GlutenException: <velox message>` in the task failure. Velox stack traces in messages are controlled by `kEnableUserExceptionStacktrace` / `kEnableSystemExceptionStacktrace` backend configs.

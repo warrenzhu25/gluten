@@ -24,32 +24,30 @@
 
 ## 1. Operator mapping overview
 
-| Spark node | Gluten node (EXPLAIN) | Velox node | Spill |
-|---|---|---|---|
-| `FileSourceScanExec` / `BatchScanExec` | `FileSourceScanExecTransformer` / `BatchScanExecTransformer` | `TableScanNode` | — |
-| `FilterExec` | `FilterExecTransformer` | `FilterNode` (or pushed into scan) | — |
-| `ProjectExec` | `ProjectExecTransformer` / `ColumnarPartialProjectExec` | `ProjectNode` | — |
-| `HashAggregateExec` (partial → exchange) | `FlushableHashAggregateExecTransformer` | `AggregationNode` (partial, flushable) | flush/abandon |
-| `HashAggregateExec` (final/complete) | `RegularHashAggregateExecTransformer` | `AggregationNode` | ✅ |
-| `SortAggregateExec` | `SortHashAggregateExecTransformer` (EXPLAIN prefixes it with `SortToHash`) | `AggregationNode` | ✅ |
-| `ShuffledHashJoinExec` | `ShuffledHashJoinExecTransformer` | `HashJoinNode` | ✅ |
-| `SortMergeJoinExec` | `ShuffledHashJoinExecTransformer` (rewritten) or `SortMergeJoinExecTransformer` | `HashJoinNode` / `MergeJoinNode` | ✅ / — |
-| `BroadcastHashJoinExec` | `BroadcastHashJoinExecTransformer` | `HashJoinNode` with prebuilt table | — |
-| `BroadcastNestedLoopJoinExec` | `VeloxBroadcastNestedLoopJoinExecTransformer` | `NestedLoopJoinNode` | — |
-| `CartesianProductExec` | `CartesianProductExecTransformer` | `NestedLoopJoinNode` | — |
-| `SortExec` | `SortExecTransformer` | `OrderByNode` | ✅ |
-| `TakeOrderedAndProjectExec` | `TakeOrderedAndProjectExecTransformer` | `TopNNode` (+ project) | — |
-| `GlobalLimitExec` / `LocalLimitExec` | `LimitExecTransformer` | `LimitNode` | — |
-| `WindowExec` | `WindowExecTransformer` | `WindowNode` | ✅ |
-| `WindowGroupLimitExec` | `WindowGroupLimitExecTransformer` | `TopNRowNumberNode` / `RowNumberNode` | ✅ |
-| `ExpandExec` | `ExpandExecTransformer` | `ExpandNode` | — |
-| `GenerateExec` (explode, posexplode, inline, ...) | `GenerateExecTransformer` | `UnnestNode` | — |
-| `UnionExec` | `ColumnarUnionExec` (or native union) | `LocalPartitionNode` gather | — |
-| `ShuffleExchangeExec` | `ColumnarExchange` | — (native shuffle writer) | ✅ |
-| `BroadcastExchangeExec` | `ColumnarBroadcastExchange` | — | — |
-| `WriteFilesExec` | `WriteFilesExecTransformer` | `TableWriteNode` | — |
-| `ArrowEvalPythonExec` | `ColumnarArrowEvalPythonExec` | — (Arrow IPC to Python) | — |
-| `InMemoryTableScanExec` | columnar cache scan | — | — |
+- `FileSourceScanExec` / `BatchScanExec` → `FileSourceScanExecTransformer` / `BatchScanExecTransformer` → Velox `TableScanNode`
+- `FilterExec` → `FilterExecTransformer` → Velox `FilterNode` (or pushed into scan)
+- `ProjectExec` → `ProjectExecTransformer` / `ColumnarPartialProjectExec` → Velox `ProjectNode`
+- `HashAggregateExec` (partial → exchange) → `FlushableHashAggregateExecTransformer` → Velox `AggregationNode` (partial, flushable). Spill: flushes or abandons instead.
+- `HashAggregateExec` (final/complete) → `RegularHashAggregateExecTransformer` → Velox `AggregationNode`. Spill: yes.
+- `SortAggregateExec` → `SortHashAggregateExecTransformer` (EXPLAIN prefixes it with `SortToHash`) → Velox `AggregationNode`. Spill: yes.
+- `ShuffledHashJoinExec` → `ShuffledHashJoinExecTransformer` → Velox `HashJoinNode`. Spill: yes.
+- `SortMergeJoinExec` → `ShuffledHashJoinExecTransformer` (rewritten) or `SortMergeJoinExecTransformer` → Velox `HashJoinNode` / `MergeJoinNode`. Spill: yes for the hash join, no for the merge join.
+- `BroadcastHashJoinExec` → `BroadcastHashJoinExecTransformer` → Velox `HashJoinNode` with prebuilt table
+- `BroadcastNestedLoopJoinExec` → `VeloxBroadcastNestedLoopJoinExecTransformer` → Velox `NestedLoopJoinNode`
+- `CartesianProductExec` → `CartesianProductExecTransformer` → Velox `NestedLoopJoinNode`
+- `SortExec` → `SortExecTransformer` → Velox `OrderByNode`. Spill: yes.
+- `TakeOrderedAndProjectExec` → `TakeOrderedAndProjectExecTransformer` → Velox `TopNNode` (+ project)
+- `GlobalLimitExec` / `LocalLimitExec` → `LimitExecTransformer` → Velox `LimitNode`
+- `WindowExec` → `WindowExecTransformer` → Velox `WindowNode`. Spill: yes.
+- `WindowGroupLimitExec` → `WindowGroupLimitExecTransformer` → Velox `TopNRowNumberNode` / `RowNumberNode`. Spill: yes.
+- `ExpandExec` → `ExpandExecTransformer` → Velox `ExpandNode`
+- `GenerateExec` (explode, posexplode, inline, ...) → `GenerateExecTransformer` → Velox `UnnestNode`
+- `UnionExec` → `ColumnarUnionExec` (or native union) → Velox `LocalPartitionNode` gather
+- `ShuffleExchangeExec` → `ColumnarExchange` → native shuffle writer. Spill: yes.
+- `BroadcastExchangeExec` → `ColumnarBroadcastExchange` → no Velox node
+- `WriteFilesExec` → `WriteFilesExecTransformer` → Velox `TableWriteNode`
+- `ArrowEvalPythonExec` → `ColumnarArrowEvalPythonExec` → no Velox node (Arrow IPC to the Python worker)
+- `InMemoryTableScanExec` → columnar cache scan → no Velox node
 
 Full status: [docs/velox-backend-support-progress.md](../../docs/velox-backend-support-progress.md).
 
@@ -162,7 +160,8 @@ Example:
 
 ```sql
 SELECT * FROM (
-  SELECT *, row_number() OVER (PARTITION BY store ORDER BY amount DESC) AS rn FROM sales
+  SELECT *, row_number() OVER (PARTITION BY store ORDER BY amount DESC) AS rn
+      FROM sales
 ) WHERE rn <= 3
 ```
 
@@ -202,9 +201,11 @@ This example uses the **real approved plan** that Gluten's own test suite checks
 
 ```sql
 -- TPC-H Q3 (shipping priority)
-SELECT l_orderkey, sum(l_extendedprice * (1 - l_discount)) AS revenue, o_orderdate, o_shippriority
+SELECT l_orderkey, sum(l_extendedprice * (1 - l_discount)) AS revenue,
+    o_orderdate, o_shippriority
 FROM customer, orders, lineitem
-WHERE c_mktsegment = 'BUILDING' AND c_custkey = o_custkey AND l_orderkey = o_orderkey
+WHERE c_mktsegment = 'BUILDING' AND c_custkey = o_custkey
+    AND l_orderkey = o_orderkey
   AND o_orderdate < date '1995-03-15' AND l_shipdate > date '1995-03-15'
 GROUP BY l_orderkey, o_orderdate, o_shippriority
 ORDER BY revenue DESC, o_orderdate
@@ -242,9 +243,12 @@ VeloxColumnarToRow (42)
                :     +- ColumnarExchange (23)
                :        +- VeloxResizeBatches (22)
                :           +- ^ ProjectExecTransformer (20)
-               :              +- ^ ShuffledHashJoinExecTransformer Inner BuildLeft (19)
-               :                 :- ... ColumnarExchange (6) <- Filter/Scan customer (1)
-               :                 +- ... ColumnarExchange (15) <- Filter/Scan orders (10)
+               :              +- ^ ShuffledHashJoinExecTransformer Inner
+               :                       BuildLeft (19)
+               :                 :- ... ColumnarExchange (6) <- Filter/Scan
+               :                 :      customer (1)
+               :                 +- ... ColumnarExchange (15) <- Filter/Scan
+               :                        orders (10)
                +- ^ InputIteratorTransformer (35)
                   +- ... ColumnarExchange (32) <- Filter/Scan lineitem (27)
 ```
@@ -263,7 +267,8 @@ What changed, and which rule did it:
 **Try it / verify.** Run Q3 on TPC-H data with `spark.sql.autoBroadcastJoinThreshold=-1`, then:
 
 ```scala
-spark.sql(q3).explain("formatted")    // expect ShuffledHashJoinExecTransformer, no Sort/SortMergeJoin
+// expect ShuffledHashJoinExecTransformer, no Sort/SortMergeJoin
+spark.sql(q3).explain("formatted")
 import org.apache.spark.sql.execution.GlutenImplicits._
 spark.sql(q3).fallbackSummary().numFallbackNodes   // expect 0
 ```

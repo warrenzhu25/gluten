@@ -95,11 +95,9 @@ How Delta and Iceberg scans flow from planning to native reading.
 
 Component wiring (both are legacy-transform rules running in the heuristic planner, see [02 · Planning](02-planning-offload-validation-fallback.md)):
 
-| Component | Name | Depends on | Active when class present | Rules injected |
-|---|---|---|---|---|
-| `VeloxDeltaComponent` | `velox-delta` | `VeloxBackend` | `io.delta.sql.DeltaSparkSessionExtension` | transform: `OffloadDeltaScan`, `OffloadDeltaProject`, `OffloadDeltaFilter`; post-transform: `DeltaPostTransformRules.rules` |
-| `VeloxDelta33WriteComponent` / `VeloxDelta40WriteComponent` | `velox-delta33-write` / `velox-delta40-write` | `VeloxDeltaComponent` | (inherits) | transform: `OffloadDeltaCommand` |
-| `VeloxIcebergComponent` | `velox-iceberg` | `VeloxBackend` | `org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions` | transform: `OffloadIcebergScan`; `OffloadIcebergWrite.inject` (5 write rules) |
+- `VeloxDeltaComponent`, name `velox-delta`, depends on `VeloxBackend`. Active when `io.delta.sql.DeltaSparkSessionExtension` is on the classpath. Rules: transform: `OffloadDeltaScan`, `OffloadDeltaProject`, `OffloadDeltaFilter`; post-transform: `DeltaPostTransformRules.rules`
+- `VeloxDelta33WriteComponent` / `VeloxDelta40WriteComponent`, name `velox-delta33-write` / `velox-delta40-write`, depends on `VeloxDeltaComponent`. Active when (inherits) is on the classpath. Rules: transform: `OffloadDeltaCommand`
+- `VeloxIcebergComponent`, name `velox-iceberg`, depends on `VeloxBackend`. Active when `org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions` is on the classpath. Rules: transform: `OffloadIcebergScan`; `OffloadIcebergWrite.inject` (5 write rules)
 
 Each transform rule is wrapped as `HeuristicTransform.Simple(Validators.newValidator(conf, offload), offload)`. The usual validators therefore still run: user options, backend settings, and the plan's own `doValidate`.
 
@@ -352,8 +350,10 @@ A native Iceberg write, step by step.
 // spark-shell with the Gluten bundle built with -Pdelta, Spark 3.5 + Delta 3.3
 spark.sql("""CREATE TABLE t (id BIGINT, v STRING) USING delta
              TBLPROPERTIES ('delta.enableDeletionVectors'='true')""")
-spark.range(0, 1000000).selectExpr("id", "cast(id as string) v").write.mode("append").saveAsTable("t")
-spark.sql("DELETE FROM t WHERE id % 10 = 0")   // writes DVs instead of rewriting files
+spark.range(0, 1000000).selectExpr("id",
+    "cast(id as string) v").write.mode("append").saveAsTable("t")
+// writes DVs instead of rewriting files
+spark.sql("DELETE FROM t WHERE id % 10 = 0")
 spark.sql("SELECT count(*) FROM t WHERE v LIKE '9%'").explain()
 ```
 
@@ -377,7 +377,8 @@ What happens, step by step:
 
 ```sql
 CREATE TABLE cm (a INT, b STRUCT<x: INT>) USING delta
-  TBLPROPERTIES ('delta.columnMapping.mode'='name', 'delta.minReaderVersion'='2', 'delta.minWriterVersion'='5');
+  TBLPROPERTIES ('delta.columnMapping.mode'='name',
+      'delta.minReaderVersion'='2', 'delta.minWriterVersion'='5');
 ALTER TABLE cm RENAME COLUMN a TO a2;
 SELECT a2, b.x FROM cm WHERE a2 > 5;
 ```
@@ -392,7 +393,8 @@ SELECT a2, b.x FROM cm WHERE a2 > 5;
 CREATE TABLE local.db.t (id BIGINT, data STRING) USING iceberg
   TBLPROPERTIES ('format-version'='2', 'write.delete.mode'='merge-on-read');
 INSERT INTO local.db.t SELECT id, cast(id AS STRING) FROM range(100000);
-DELETE FROM local.db.t WHERE id < 100;           -- produces a position delete file
+-- produces a position delete file
+DELETE FROM local.db.t WHERE id < 100;
 SELECT count(*), max(id) FROM local.db.t;
 ```
 

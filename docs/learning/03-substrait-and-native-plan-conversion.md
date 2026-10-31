@@ -96,7 +96,8 @@ A unary transformer transforms its child first, then wraps the child's `RelNode`
 // FilterExecTransformerBase.doTransform (simplified)
 val childCtx = child.asInstanceOf[TransformSupport].transform(context)
 val operatorId = context.nextOperatorId(this.nodeName)
-val currRel = getRelNode(context, remainingCondition, child.output, operatorId, childCtx.root, validation = false)
+val currRel = getRelNode(context, remainingCondition, child.output,
+    operatorId, childCtx.root, validation = false)
 TransformContext(output, currRel)
 ```
 
@@ -112,7 +113,8 @@ TransformContext(output, currRel)
 Each function call is registered in the context and referenced by id:
 
 ```scala
-val funcName = ConverterUtils.makeFuncName("gt", Seq(IntegerType, IntegerType))   // "gt:i32_i32"
+// "gt:i32_i32"
+val funcName = ConverterUtils.makeFuncName("gt", Seq(IntegerType, IntegerType))
 val funcId = context.registerFunction(funcName)
 ExpressionBuilder.makeScalarFunction(funcId, args, outputTypeNode)
 ```
@@ -155,9 +157,12 @@ More in [09 · Scan](09-scan-and-data-sources.md).
 
 ```cpp
 // VeloxRuntime::createResultIterator (simplified)
-VeloxPlanConverter veloxPlanConverter(leafPool, veloxCfg, inputs, connectorIds, writeTempPath, writeFileName);
-veloxPlan_ = veloxPlanConverter.toVeloxPlan(substraitPlan_, std::move(localFiles_));
-// separate leaf nodes into scans (with SplitInfo) and streams (iterators), then build WholeStageResultIterator
+VeloxPlanConverter veloxPlanConverter(leafPool, veloxCfg, inputs,
+    connectorIds, writeTempPath, writeFileName);
+veloxPlan_ = veloxPlanConverter.toVeloxPlan(substraitPlan_,
+    std::move(localFiles_));
+// separate leaf nodes into scans (with SplitInfo) and streams (iterators), then
+// build WholeStageResultIterator
 ```
 
 ### 5.2 Dispatch
@@ -189,11 +194,14 @@ veloxPlan_ = veloxPlanConverter.toVeloxPlan(substraitPlan_, std::move(localFiles
 Example (`FilterRel`):
 
 ```cpp
-core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::FilterRel& filterRel) {
+core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(
+    const ::substrait::FilterRel& filterRel) {
   auto childNode = convertSingleInput<::substrait::FilterRel>(filterRel);
   auto filterNode = std::make_shared<core::FilterNode>(
-      nextPlanNodeId(), exprConverter_->toVeloxExpr(filterRel.condition(), childNode->outputType()), childNode);
-  return filterRel.has_common() ? processEmit(filterRel.common(), std::move(filterNode)) : filterNode;
+      nextPlanNodeId(), exprConverter_->toVeloxExpr(filterRel.condition(),
+          childNode->outputType()), childNode);
+  return filterRel.has_common() ? processEmit(filterRel.common(),
+      std::move(filterNode)) : filterNode;
 }
 ```
 
@@ -204,9 +212,12 @@ Plan node ids are sequential strings (`"0"`, `"1"`, ...); Gluten keeps the order
 ```cpp
 // constructValueStreamNode (simplified)
 auto nodeId = ValueStreamConnectorFactory::nodeIdOf(streamIdx);
-auto tableHandle = std::make_shared<ValueStreamTableHandle>(connectorIds_.iterator, dynamicFilterEnabled);
+auto tableHandle =
+    std::make_shared<ValueStreamTableHandle>(connectorIds_.iterator,
+        dynamicFilterEnabled);
 // columns named node_<id>_<i>, assignments of ValueStreamColumnHandle
-auto tableScanNode = std::make_shared<core::TableScanNode>(nodeId, outputType, tableHandle, assignments);
+auto tableScanNode = std::make_shared<core::TableScanNode>(nodeId,
+    outputType, tableHandle, assignments);
 splitInfo->leafType = SplitInfo::LeafType::SPLIT_AWARE_STREAM;
 ```
 
@@ -223,9 +234,12 @@ So **upstream batches enter Velox as splits of a special connector**. `WholeStag
 `findVeloxFunction` strips the signature (`gt:i32_i32` → `gt`) and maps Substrait names to Velox's Spark-SQL function names when they differ:
 
 ```cpp
-{"is_not_null", "isnotnull"}, {"equal", "equalto"}, {"lt", "lessthan"}, {"gte", "greaterthanorequal"},
-{"strpos", "instr"}, {"named_struct", "row_constructor"}, {"murmur3hash", "hash_with_seed"},
-{"xxhash64", "xxhash64_with_seed"}, {"modulus", "remainder"}, {"negative", "unaryminus"}, ...
+{"is_not_null", "isnotnull"}, {"equal", "equalto"}, {"lt", "lessthan"},
+    {"gte", "greaterthanorequal"},
+{"strpos", "instr"}, {"named_struct", "row_constructor"}, {"murmur3hash",
+    "hash_with_seed"},
+{"xxhash64", "xxhash64_with_seed"}, {"modulus", "remainder"}, {"negative",
+    "unaryminus"}, ...
 ```
 
 Velox resolves the final name against its function registry (Spark SQL functions registered in `registerAllFunctions()` at backend init). More in [11](11-expressions-functions-udf.md).
@@ -239,8 +253,10 @@ Velox resolves the final name against its function registry (Spark SQL functions
 `SubstraitToVeloxPlanValidator` reuses the converter with `validationMode_ = true` (no split infos needed) and adds rule checks per Rel. For expressions it actually **compiles** them:
 
 ```cpp
-std::vector<core::TypedExprPtr> expressions{exprConverter_->toVeloxExpr(expression, inputType)};
-exec::ExprSet exprSet(std::move(expressions), execCtx_.get());   // throws on unknown function/signature
+std::vector<core::TypedExprPtr> expressions{exprConverter_->toVeloxExpr(
+    expression, inputType)};
+// throws on unknown function/signature
+exec::ExprSet exprSet(std::move(expressions), execCtx_.get());
 ```
 
 Any `VeloxException` is caught, its message recorded, and validation fails → the node falls back ([02](02-planning-offload-validation-fallback.md)).
@@ -263,8 +279,10 @@ GROUP BY k
 ```text
 WholeStageCodegenTransformer (1)
 +- ^ ProjectExecTransformer [k, sum, count...]
-   +- ^ FlushableHashAggregateExecTransformer(keys=[k], functions=[partial_sum(_pre_0)])
-      +- ^ ProjectExecTransformer [k, (v * 2) AS _pre_0]        <- PullOutPreProject
+   +- ^ FlushableHashAggregateExecTransformer(keys=[k],
+            functions=[partial_sum(_pre_0)])
+      # PullOutPreProject
+      +- ^ ProjectExecTransformer [k, (v * 2) AS _pre_0]
          +- ^ FilterExecTransformer (isnotnull(v) AND (v > 10))
             +- ^ FileSourceScanExecTransformer parquet [k, v]
 ```
@@ -284,13 +302,17 @@ WholeStageCodegenTransformer (1)
     "aggregate": {
       "input": {"project": {
         "input": {"filter": {
-          "input": {"read": {"baseSchema": {"names": ["k", "v"]}, "localFiles": {}}},
-          "condition": {"scalarFunction": {"functionReference": 2, "...": "..."}}
+          "input": {"read": {"baseSchema": {"names": ["k", "v"]},
+              "localFiles": {}}},
+          "condition": {"scalarFunction": {"functionReference": 2,
+              "...": "..."}}
         }},
-        "expressions": [{"scalarFunction": {"functionReference": 3, "...": "..."}}]
+        "expressions": [{"scalarFunction": {"functionReference": 3,
+            "...": "..."}}]
       }},
       "groupings": [{"groupingExpressions": [{"selection": {"directReference": {"structField": {}}}}]}],
-      "measures": [{"measure": {"functionReference": 4, "phase": "AGGREGATION_PHASE_INITIAL_TO_INTERMEDIATE"}}]
+      "measures": [{"measure": {"functionReference": 4,
+          "phase": "AGGREGATION_PHASE_INITIAL_TO_INTERMEDIATE"}}]
     }},
     "names": ["k#0", "sum#12"]
   }}]
@@ -300,7 +322,8 @@ WholeStageCodegenTransformer (1)
 Note the empty `localFiles` in the plan: the files come per task from `SplitInfo`:
 
 ```text
-LocalFiles { items: [ {uri_file: "file:/tmp/t/part-00000.parquet", start: 0, length: 1048576,
+LocalFiles { items: [ {uri_file: "file:/tmp/t/part-00000.parquet", start: 0,
+    length: 1048576,
                         parquet: {}, partition_columns: []} ] }
 ```
 
@@ -309,7 +332,8 @@ LocalFiles { items: [ {uri_file: "file:/tmp/t/part-00000.parquet", start: 0, len
 ```text
 -- Project[4][expressions: (n4_0:BIGINT, "n3_0"), (n4_1:BIGINT, "n3_1")]
   -- Aggregation[3][PARTIAL [n2_0] n3_1 := sum("n2_1")]
-    -- Project[2][expressions: (n2_0:BIGINT, "n0_0"), (n2_1:BIGINT, multiply("n0_1", 2))]
+    -- Project[2][expressions: (n2_0:BIGINT, "n0_0"), (n2_1:BIGINT,
+           multiply("n0_1", 2))]
       -- Filter[1][expression: and(isnotnull("n0_1"), greaterthan("n0_1", 10))]
         -- TableScan[0][table: hive_table, remaining filter: ...]
 ```

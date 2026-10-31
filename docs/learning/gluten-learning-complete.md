@@ -30,7 +30,7 @@
 
 > **Series:** Learning Apache Gluten (Velox backend) · **Code base:** Apache Gluten **v1.7.0** (tag `v1.7.0`)
 >
-> This is the entry point of the series. Read it first; every other doc goes deeper into one box of the diagrams below.
+> This is the entry point of the series. Read it first; every other doc goes deeper into one step of the flow described below.
 
 ---
 
@@ -116,27 +116,25 @@ That gives:
 
 ## 3. Architecture at a glance
 
-```mermaid
-flowchart TB
-  subgraph Driver["Driver (JVM)"]
-    SQL["SQL / DataFrame"] --> Cat["Catalyst: analyze + optimize"]
-    Cat --> Phys["Spark physical plan"]
-    Phys --> GR["GlutenColumnarRule (injected via SparkSessionExtensions)"]
-    GR --> Tx["Offload + validate + fallback"]
-    Tx --> WST["WholeStageTransformer stages + transitions + ColumnarExchange"]
-    WST --> SP["Substrait plan bytes per stage"]
-  end
-  subgraph Executor["Executor"]
-    T["Spark Task: GlutenWholeStageColumnarRDD.compute"] --> JNI["JNI: PlanEvaluatorJniWrapper"]
-    JNI --> RT["VeloxRuntime: Substrait to Velox plan"]
-    RT --> VT["Velox Task (serial, 1 driver)"]
-    VT --> CB["VeloxColumnarBatch"]
-    CB --> SW["Columnar shuffle writer"]
-    CB --> C2R["VeloxColumnarToRow (if Spark needs rows)"]
-  end
-  SP -->|"serialized in RDD partitions"| T
-  MM["Spark TaskMemoryManager"] <-->|"reserve / spill"| VT
-```
+How the pieces fit together, in the order a query passes through them.
+
+**On the driver (JVM):**
+
+1. You submit SQL or a DataFrame.
+2. Catalyst analyzes and optimizes it, then Spark builds a physical plan.
+3. `GlutenColumnarRule` (injected through `SparkSessionExtensions`) rewrites that plan: it offloads, validates and falls back node by node.
+4. The result is a plan made of `WholeStageTransformer` stages, transitions and `ColumnarExchange` (shuffle) nodes.
+5. Each native stage is serialized into Substrait plan bytes, which travel inside the RDD partitions sent to executors.
+
+**On each executor:**
+
+1. A Spark task runs `GlutenWholeStageColumnarRDD.compute`.
+2. It calls into C++ through JNI (`PlanEvaluatorJniWrapper`).
+3. `VeloxRuntime` turns the Substrait plan into a Velox plan.
+4. A Velox task runs it serially (one driver) and produces `VeloxColumnarBatch`es.
+5. Batches go either to the columnar shuffle writer, or through `VeloxColumnarToRow` if a Spark operator needs rows.
+
+Throughout, Velox reserves memory from Spark's `TaskMemoryManager`, and Spark can ask it to spill.
 
 ### Layered view
 
@@ -206,8 +204,7 @@ spark-shell \
   --conf spark.shuffle.manager=org.apache.spark.shuffle.sort.ColumnarShuffleManager
 ```
 
-> [!IMPORTANT]
-> Off-heap must be enabled (unless dynamic off-heap sizing is used): `GlutenDriverPlugin.checkOffHeapSettings` throws if `spark.memory.offHeap.enabled` is false or the size is < 1MB. Native memory is accounted against this budget. See [Memory management](#doc-06).
+> **Important:** Off-heap must be enabled (unless dynamic off-heap sizing is used): `GlutenDriverPlugin.checkOffHeapSettings` throws if `spark.memory.offHeap.enabled` is false or the size is < 1MB. Native memory is accounted against this budget. See [Memory management](#doc-06).
 
 ### Step 1 — Startup (driver & executors)
 
@@ -299,31 +296,18 @@ Details: [03 · Substrait](#doc-03), [09 · Scan](#doc-09).
 
 For each task:
 
-```mermaid
-sequenceDiagram
-  participant RDD as GlutenWholeStageColumnarRDD.compute
-  participant IT as VeloxIteratorApi.genFirstStageIterator
-  participant NPE as NativePlanEvaluator (Java)
-  participant JNI as JniWrapper.cc
-  participant RT as VeloxRuntime (C++)
-  participant WS as WholeStageResultIterator
-  participant V as Velox Task
-  RDD->>IT: partition (plan bytes + split infos)
-  IT->>NPE: create(backend), createKernelWithBatchIterator(plan, splits, inputIters, spillDir)
-  NPE->>JNI: nativeCreateKernelWithIterator
-  JNI->>RT: parsePlan, parseSplitInfo
-  RT->>RT: VeloxPlanConverter.toVeloxPlan (Substrait to Velox PlanNodes)
-  RT->>WS: new WholeStageResultIterator(plan, splits, ...)
-  WS->>V: TaskCursor::create(serialExecution=true, maxDrivers=1)
-  loop each batch
-    RDD->>JNI: ColumnarBatchOutIterator.nativeHasNext / nativeNext
-    JNI->>WS: next()
-    WS->>V: cursor.moveNext()
-    V-->>WS: RowVector
-    WS-->>RDD: handle of VeloxColumnarBatch
-  end
-  RDD->>JNI: close + fetch native metrics
-```
+What happens inside one task, step by step.
+
+1. `GlutenWholeStageColumnarRDD.compute` receives its partition: plan bytes plus split infos.
+2. `VeloxIteratorApi.genFirstStageIterator` creates a `NativePlanEvaluator` and calls `createKernelWithBatchIterator(plan, splits, inputIters, spillDir)`.
+3. The evaluator calls JNI `nativeCreateKernelWithIterator`.
+4. In C++, `VeloxRuntime` parses the plan and splits, and `VeloxPlanConverter.toVeloxPlan` builds Velox plan nodes.
+5. It creates a `WholeStageResultIterator`, which opens a Velox `TaskCursor` (serial execution, one driver).
+6. Then, for each batch:
+   - the JVM calls `nativeHasNext` / `nativeNext`;
+   - the iterator calls `cursor.moveNext()` and Velox returns a `RowVector`;
+   - the JVM receives a handle to a `VeloxColumnarBatch`. The data itself stays in C++.
+7. At the end, the JVM closes the iterator and fetches native metrics.
 
 Key facts:
 - **One Velox Task per Spark task**, executed **serially on the Spark task thread** (`params.serialExecution = true`, `maxDrivers = 1`). Parallelism still comes from Spark tasks.
@@ -364,8 +348,7 @@ Details: [05 · Transitions](#doc-05), [13 · Metrics & troubleshooting](#doc-13
 | Memory accounting | | ✅ (memory targets) | ✅ (pools, arbitrator) |
 | Shuffle write/read | | ✅ (Spark framework) | ✅ (partitioning, serialization, compression) |
 
-> [!NOTE]
-> Native libraries are loaded on the **driver too**, because native validation runs there during planning.
+> **Note:** Native libraries are loaded on the **driver too**, because native validation runs there during planning.
 
 ---
 
@@ -529,27 +512,17 @@ df.explain("formatted")        // also prints the Velox plan per stage
 
 ## 3. Architecture
 
-```mermaid
-flowchart TB
-  SP["spark.plugins = org.apache.gluten.GlutenPlugin"] --> GP["GlutenPlugin"]
-  GP --> DP["GlutenDriverPlugin"]
-  GP --> EP["GlutenExecutorPlugin"]
-  DP --> EXT["append GlutenSessionExtensions to spark.sql.extensions"]
-  DP --> CFG["setPredefinedConfigs: off-heap checks, per-task sizes"]
-  DP --> CS["Component.sorted()"]
-  EP --> CS
-  CS --> DISC["Discovery: META-INF/gluten-components/*"]
-  DISC --> DAG["Dependency graph + topological sort"]
-  DAG --> VB["VeloxBackend (root)"]
-  DAG --> ICE["VeloxIcebergComponent (depends on VeloxBackend)"]
-  DAG --> DEL["VeloxDeltaComponent ..."]
-  VB --> LA["VeloxListenerApi.onDriverStart / onExecutorStart"]
-  LA --> LIB["load libgluten.so + libvelox.so"]
-  LA --> NBI["NativeBackendInitializer.initialize"]
-  NBI --> CPP["C++ VeloxBackend::init"]
-  EXT --> GSE["GlutenSessionExtensions.apply (per SparkSession)"]
-  GSE --> INJ["components (reverse order).injectRules(injector)"]
-```
+How Gluten boots, from one config key down to the native library.
+
+1. `spark.plugins=org.apache.gluten.GlutenPlugin` loads `GlutenPlugin`, which has a driver part and an executor part.
+2. The driver plugin (`GlutenDriverPlugin`):
+   - appends `GlutenSessionExtensions` to `spark.sql.extensions`;
+   - runs `setPredefinedConfigs` (off-heap checks, per-task sizes);
+   - calls `Component.sorted()`.
+3. The executor plugin (`GlutenExecutorPlugin`) also calls `Component.sorted()`.
+4. `Component.sorted()` discovers components from `META-INF/gluten-components/*` files, builds a dependency graph, and sorts it. `VeloxBackend` is the root; `VeloxIcebergComponent`, `VeloxDeltaComponent` and others depend on it.
+5. `VeloxBackend`'s listener (`VeloxListenerApi.onDriverStart` / `onExecutorStart`) loads `libgluten.so` and `libvelox.so`, then calls `NativeBackendInitializer.initialize`, which runs C++ `VeloxBackend::init`.
+6. Later, for each `SparkSession`, `GlutenSessionExtensions.apply` asks every component (in reverse order) to inject its rules.
 
 ---
 
@@ -689,8 +662,7 @@ object BackendsApiManager {
 }
 ```
 
-> [!IMPORTANT]
-> Exactly **one** Substrait backend must be on the classpath. Don't mix the Velox and ClickHouse bundles.
+> **Important:** Exactly **one** Substrait backend must be on the classpath. Don't mix the Velox and ClickHouse bundles.
 
 ### 4.4 `VeloxListenerApi` — native startup
 
@@ -716,8 +688,7 @@ object BackendsApiManager {
 7. **`NativeBackendInitializer.forBackend("velox").initialize(globalListener, parseConf(conf, isDriver))`** — the global off-heap listener charges native *global* allocations to `GlobalOffHeapMemory.target`.
 8. Register the Velox Parquet writer injects and `VeloxRowSplitter`.
 
-> [!NOTE]
-> On the driver, `parseConf` forces `COLUMNAR_VELOX_CACHE_ENABLED=false` (issue #7837) — the driver doesn't need the data cache.
+> **Note:** On the driver, `parseConf` forces `COLUMNAR_VELOX_CACHE_ENABLED=false` (issue #7837) — the driver doesn't need the data cache.
 
 ### 4.5 Native initialization (`VeloxBackend::init`)
 
@@ -781,31 +752,19 @@ Runtimes.contextInstance(backendName, name, extraConf)
 
 ## 5. End-to-end worked example: starting `spark-shell` with Gluten
 
-```mermaid
-sequenceDiagram
-  participant SS as spark-shell (driver JVM)
-  participant SC as SparkContext
-  participant GDP as GlutenDriverPlugin
-  participant C as Component.sorted()
-  participant VB as VeloxBackend / VeloxListenerApi
-  participant N as C++ VeloxBackend::init
-  participant EX as Executor JVM
-  participant GEP as GlutenExecutorPlugin
-  SS->>SC: new SparkContext(conf with spark.plugins)
-  SC->>GDP: init(sc, pluginContext)
-  GDP->>GDP: add GlutenSessionExtensions, setPredefinedConfigs
-  GDP->>C: discover + sort components
-  C-->>GDP: [velox, velox-iceberg, ...]
-  GDP->>VB: onDriverStart
-  VB->>VB: listeners, overhead default, load libgluten + libvelox
-  VB->>N: NativeBackendInitializer.initialize(conf)
-  SC->>GDP: registerMetrics (attach Gluten UI tab)
-  SC->>EX: launch executors
-  EX->>GEP: init(ctx)
-  GEP->>VB: onExecutorStart -> load libs -> native init
-  SS->>SS: SparkSession.builder.getOrCreate()
-  SS->>SS: GlutenSessionExtensions.apply -> inject rules
-```
+The startup sequence for `spark-shell`.
+
+1. `spark-shell` creates a `SparkContext` whose conf contains `spark.plugins`.
+2. The `SparkContext` calls `GlutenDriverPlugin.init`.
+3. The driver plugin adds `GlutenSessionExtensions` and sets predefined configs.
+4. It discovers and sorts components, for example `[velox, velox-iceberg, ...]`.
+5. It calls `onDriverStart` on the Velox backend, which:
+   - registers listeners and sets a default memory overhead;
+   - loads `libgluten` and `libvelox`;
+   - calls `NativeBackendInitializer.initialize(conf)` to run C++ `VeloxBackend::init`.
+6. The `SparkContext` registers metrics and attaches the Gluten UI tab.
+7. Executors launch. In each one, `GlutenExecutorPlugin.init` calls `onExecutorStart`, which loads the libraries and initializes native code.
+8. `SparkSession.builder.getOrCreate()` runs `GlutenSessionExtensions.apply`, which injects the planner rules.
 
 What you'll see in the driver log (illustrative):
 
@@ -965,8 +924,7 @@ Scala can't know every detail of what Velox supports (function signatures, type 
 | `ColumnarCollapseTransformStages` | Builds `WholeStageTransformer` + `InputIteratorTransformer` boundaries | [ColumnarCollapseTransformStages.scala](../../gluten-substrait/src/main/scala/org/apache/spark/sql/execution/ColumnarCollapseTransformStages.scala) |
 | `GlutenFallbackReporter` | Logs fallback reasons and posts them to the UI | [GlutenFallbackReporter.scala](../../gluten-substrait/src/main/scala/org/apache/spark/sql/execution/GlutenFallbackReporter.scala) |
 
-> [!NOTE]
-> Older Gluten versions also had an experimental cost-based planner ("RAS"). In v1.7.0 `GlutenInjector` only builds the **heuristic (legacy) applier**; the remaining `*-ras` approved-plan test resources are historical.
+> **Note:** Older Gluten versions also had an experimental cost-based planner ("RAS"). In v1.7.0 `GlutenInjector` only builds the **heuristic (legacy) applier**; the remaining `*-ras` approved-plan test resources are historical.
 
 ---
 
@@ -979,29 +937,28 @@ Spark's `ApplyColumnarRulesAndInsertTransitions` (part of `QueryExecution.prepar
 1. `preColumnarTransitions` only **wraps** the plan in a dummy node to remember whether the caller wants columnar or row output.
 2. `postColumnarTransitions` unwraps, **removes Spark's transitions** (`Transitions.insert` on the original plan), and runs Gluten's applier with `outputsColumnar`.
 
-```mermaid
-flowchart LR
-  A["Spark physical plan"] --> B["preColumnarTransitions: wrap in DummyRow/ColumnarOutputExec"]
-  B --> C["Spark inserts its own C2R/R2C"]
-  C --> D["postColumnarTransitions: unwrap + outputsColumnar"]
-  D --> E["HeuristicApplier.apply(plan, outputsColumnar)"]
-  E --> F["Gluten plan with transformers, transitions, WholeStageTransformers"]
-```
+How Gluten's rule sits inside Spark's own columnar planning.
+
+1. Start from Spark's physical plan.
+2. `preColumnarTransitions` wraps the plan (in `DummyRow`/`ColumnarOutputExec`) so Spark doesn't interfere.
+3. Spark inserts its own C2R/R2C transitions.
+4. `postColumnarTransitions` unwraps the plan and records whether the output must be columnar.
+5. `HeuristicApplier.apply(plan, outputsColumnar)` runs Gluten's rules.
+6. The result is a Gluten plan with transformers, transitions and `WholeStageTransformer`s.
 
 ### 3.2 The four phases
 
-```mermaid
-flowchart TB
-  P0["vanilla physical plan"] --> T["Phase transform"]
-  subgraph T["Phase: transform"]
-    T1["pre-transform rules"] --> T2["HeuristicTransform: rewrite, validate (AddFallbackTags), offload"] --> T3["post-transform rules incl. InsertTransitions"]
-  end
-  T --> F{"Phase: fallback (ExpandFallbackPolicy)"}
-  F -->|"keep Gluten plan"| PO["Phase: post (RemoveTopmostColumnarToRow, ColumnarCollapseTransformStages, GenerateTransformStageId, ...)"]
-  F -->|"FallbackNode(vanilla plan)"| FI
-  PO --> FI["Phase: final (GlutenFallbackReporter, RemoveFallbackTagRule, ...)"]
-  FI --> OUT["executed plan"]
-```
+The four phases of `HeuristicApplier`, in order.
+
+1. **Transform.** Start from the vanilla physical plan.
+   - pre-transform rules;
+   - `HeuristicTransform`: rewrite, validate (`AddFallbackTags`), offload;
+   - post-transform rules, including `InsertTransitions`.
+2. **Fallback.** `ExpandFallbackPolicy` decides whether to keep the Gluten plan, or to replace a stage or the whole query with the vanilla plan (`FallbackNode`).
+3. **Post.** Only if the Gluten plan was kept: `RemoveTopmostColumnarToRow`, `ColumnarCollapseTransformStages`, `GenerateTransformStageId`, and others.
+4. **Final.** Always: `GlutenFallbackReporter`, `RemoveFallbackTagRule`, and others.
+
+The output is the executed plan.
 
 Code (simplified from `HeuristicApplier.makeRule`):
 
@@ -1132,8 +1089,7 @@ override protected def doValidateInternal(): ValidationResult = {
 
 `validation = true` tells builders they are only validating (e.g. no subquery execution). `TransformerState.underValidationState` prevents `transform()` from materializing subqueries during validation.
 
-> [!TIP]
-> `spark.gluten.sql.validation.failFast` (default `true`) stops after the schema check fails; set `spark.gluten.sql.validation.printStackOnFailure=true` to log the stack trace of validation exceptions, and lower `spark.gluten.sql.validation.logLevel` (default `WARN`) as needed.
+> **Tip:** `spark.gluten.sql.validation.failFast` (default `true`) stops after the schema check fails; set `spark.gluten.sql.validation.printStackOnFailure=true` to log the stack trace of validation exceptions, and lower `spark.gluten.sql.validation.logLevel` (default `WARN`) as needed.
 
 ### 5.3 Rewrites and validation interplay
 
@@ -1179,8 +1135,7 @@ Offload rules check `FallbackTags.nonEmpty(p)` first and return the node unchang
 
 Details of each operator: [12 · Operators](#doc-12).
 
-> [!NOTE]
-> With `spark.gluten.sql.columnar.forceShuffledHashJoin=true` (default), the Velox backend prefers shuffled hash join over sort-merge join (via `RewriteJoin`), because Velox's hash join is typically faster and avoids sorts.
+> **Note:** With `spark.gluten.sql.columnar.forceShuffledHashJoin=true` (default), the Velox backend prefers shuffled hash join over sort-merge join (via `RewriteJoin`), because Velox's hash join is typically faster and avoids sorts.
 
 ---
 
@@ -1437,24 +1392,21 @@ Gluten modifies Substrait where it lacks Spark features (window functions, expan
 
 ## 3. Architecture
 
-```mermaid
-flowchart LR
-  subgraph JVM["Driver JVM"]
-    WST["WholeStageTransformer.doWholeStageTransform"] --> TR["child.transform(SubstraitContext)"]
-    TR --> DT["each Transformer.doTransform builds RelNode"]
-    DT --> PB["PlanBuilder.makePlan: extensions + root"]
-    PB --> BYTES["Plan protobuf bytes"]
-    SCAN["Scan transformers: getSplitInfos"] --> SI["SplitInfo protobuf per partition"]
-  end
-  BYTES --> PART["GlutenPartition (plan + splits)"]
-  SI --> PART
-  subgraph CPP["Executor native"]
-    PARSE["Runtime.parsePlan / parseSplitInfo"] --> CONV["SubstraitToVeloxPlanConverter.toVeloxPlan"]
-    CONV --> EXPR["SubstraitToVeloxExpr: expressions"]
-    CONV --> VP["Velox PlanNode tree"]
-  end
-  PART -->|"JNI createKernelWithIterator"| PARSE
-```
+Where the plan is built and where it is consumed.
+
+**Driver (JVM):**
+
+1. `WholeStageTransformer.doWholeStageTransform` calls `child.transform(SubstraitContext)`.
+2. Each transformer's `doTransform` builds its `RelNode`, bottom up.
+3. `PlanBuilder.makePlan` adds function extensions and the root, producing plan protobuf bytes.
+4. Separately, scan transformers call `getSplitInfos`, producing a `SplitInfo` protobuf for each partition.
+5. Plan bytes and split infos are packed into a `GlutenPartition`.
+
+**Executor (native):**
+
+1. JNI `createKernelWithIterator` hands both over.
+2. The runtime parses the plan and split infos.
+3. `SubstraitToVeloxPlanConverter.toVeloxPlan` builds the Velox `PlanNode` tree, using `SubstraitToVeloxExpr` for expressions.
 
 ---
 
@@ -1721,8 +1673,7 @@ df.queryExecution.executedPlan.collect { case w: WholeStageTransformer => w }
   .foreach(w => println(s"== stage ${w.stageId}\n${w.substraitPlanJson}"))
 ```
 
-> [!NOTE]
-> With AQE, call this after the query ran (or on `df.queryExecution.executedPlan` after an action), since the final plan with transformers only exists after adaptive planning.
+> **Note:** With AQE, call this after the query ran (or on `df.queryExecution.executedPlan` after an action), since the final plan with transformers only exists after adaptive planning.
 
 ---
 
@@ -1835,26 +1786,19 @@ df.queryExecution.executedPlan.collect { case w: WholeStageTransformer => w }
 
 ## 3. Architecture
 
-```mermaid
-flowchart TB
-  subgraph JVM["Executor JVM - Spark task thread"]
-    RDD["GlutenWholeStageColumnarRDD.compute(partition)"] --> GFS["VeloxIteratorApi.genFirstStageIterator"]
-    GFS --> NPE["NativePlanEvaluator.create -> Runtimes.contextInstance"]
-    NPE --> CK["createKernelWithBatchIterator(plan, splits, inIters, spillDir)"]
-    CK --> OUT["ColumnarBatchOutIterator wrapped by Iterators"]
-    UP["Upstream RDD iterators (shuffle read, broadcast, fallback op)"] --> IN["ColumnarBatchInIterator"]
-  end
-  subgraph CPP["Native (same thread)"]
-    J["JNI nativeCreateKernelWithIterator"] --> VR["VeloxRuntime: parsePlan, parseSplitInfo"]
-    VR --> RI["createResultIterator: SubstraitToVeloxPlan + WholeStageResultIterator"]
-    RI --> TC["Velox TaskCursor (serial, 1 driver)"]
-    TC --> OPS["Operators: TableScan, Filter, Project, Agg, Join ..."]
-    OPS --> VS["ValueStream connector pulls JniColumnarBatchIterator"]
-  end
-  CK --> J
-  VS -->|"JNI callback hasNext/next -> handle"| IN
-  OUT -->|"nativeHasNext / nativeNext"| TC
-```
+Everything below runs on the Spark task thread. Data flows in two directions.
+
+**Creating the native iterator (JVM → C++):**
+
+1. `GlutenWholeStageColumnarRDD.compute(partition)` calls `VeloxIteratorApi.genFirstStageIterator`.
+2. That creates a `NativePlanEvaluator` (via `Runtimes.contextInstance`) and calls `createKernelWithBatchIterator(plan, splits, inIters, spillDir)`.
+3. JNI `nativeCreateKernelWithIterator` reaches C++. `VeloxRuntime` parses the plan and splits.
+4. `createResultIterator` builds the Velox plan and a `WholeStageResultIterator` around a Velox `TaskCursor` (serial, one driver).
+5. The JVM gets back a `ColumnarBatchOutIterator`.
+
+**Output (C++ → JVM):** the JVM pulls results with `nativeHasNext` / `nativeNext`. Each call drives the Velox operators (TableScan, Filter, Project, Agg, Join, …) one step.
+
+**Input (JVM → C++):** when a stage reads from shuffle, broadcast or a fallen-back operator, its Velox ValueStream connector calls back into Java (`ColumnarBatchInIterator`) to get the next batch handle.
 
 ---
 
@@ -2017,35 +1961,19 @@ On iterator completion (`recycleIterator`), `IteratorMetricsJniWrapper.fetch(res
 
 ## 5. End-to-end worked example: one task of a scan + aggregate stage
 
-```mermaid
-sequenceDiagram
-  participant S as Spark Executor (task thread)
-  participant R as GlutenWholeStageColumnarRDD
-  participant I as VeloxIteratorApi
-  participant E as NativePlanEvaluator
-  participant TR as TaskResources
-  participant J as JniWrapper.cc
-  participant V as VeloxRuntime / WholeStageResultIterator
-  participant D as Downstream (shuffle writer or C2R)
-  S->>R: compute(partition 7)
-  R->>I: genFirstStageIterator(plan, splits)
-  I->>E: create(velox)
-  E->>TR: Runtimes.contextInstance -> new Runtime (memory manager, native runtime)
-  I->>E: createKernelWithBatchIterator
-  E->>J: nativeCreateKernelWithIterator
-  J->>V: parsePlan, parseSplitInfo, createResultIterator
-  V-->>J: iterator handle
-  J-->>E: handle -> ColumnarBatchOutIterator (+ spiller registered)
-  loop until end
-    D->>J: nativeHasNext / nativeNext
-    J->>V: next() -> cursor.moveNext()
-    V-->>J: VeloxColumnarBatch -> saveObject
-    J-->>D: batch handle (ColumnarBatch)
-    D->>D: consume, then batch.close()
-  end
-  D->>J: close: fetch metrics, nativeClose
-  S->>TR: task end -> release Runtime, memory manager
-```
+One task of a scan + aggregate stage (partition 7), step by step.
+
+1. The Spark executor calls `compute(partition 7)` on `GlutenWholeStageColumnarRDD`.
+2. The RDD calls `VeloxIteratorApi.genFirstStageIterator(plan, splits)`.
+3. `NativePlanEvaluator.create(velox)` asks `TaskResources` for this task's `Runtime`, creating it (memory manager + native runtime) on first use.
+4. `createKernelWithBatchIterator` → JNI `nativeCreateKernelWithIterator` → C++ parses the plan and splits and creates the result iterator.
+5. C++ returns an iterator handle. The JVM wraps it in a `ColumnarBatchOutIterator` and registers a spiller.
+6. Until the input is exhausted:
+   - the downstream consumer (shuffle writer or C2R) calls `nativeHasNext` / `nativeNext`;
+   - C++ calls `cursor.moveNext()`, stores the resulting `VeloxColumnarBatch`, and returns its handle;
+   - the consumer uses the batch, then calls `batch.close()`.
+7. On close, the JVM fetches metrics and calls `nativeClose`.
+8. When the task ends, `TaskResources` releases the `Runtime` and its memory manager.
 
 What you can observe:
 - Spark UI → SQL tab: per-operator native metrics on the transformer nodes (e.g. `time of scan`, `peak memory bytes`, `number of output rows`).
@@ -2076,8 +2004,7 @@ What you can observe:
 | `spark.gluten.sql.benchmark_task.*`, `spark.gluten.saveDir` | off | Dump plan/splits/input of selected tasks (see [03](#doc-03)) |
 | `spark.gluten.sql.columnar.backend.velox.enableUserExceptionStacktrace` / `enableSystemExceptionStacktrace` | `true` / `true` | Include stack traces in Velox exceptions |
 
-> [!TIP]
-> Velox-related keys are prefixed `spark.gluten.sql.columnar.backend.velox.` (see [docs/velox-configuration.md](../../docs/velox-configuration.md) and `cpp/velox/config/VeloxConfig.h`). Verify exact names there before use.
+> **Tip:** Velox-related keys are prefixed `spark.gluten.sql.columnar.backend.velox.` (see [docs/velox-configuration.md](../../docs/velox-configuration.md) and `cpp/velox/config/VeloxConfig.h`). Verify exact names there before use.
 
 ---
 
@@ -2186,18 +2113,12 @@ Benefits: new formats or backends plug in without touching planner rules; transi
 
 ## 3. The batch flavors
 
-```mermaid
-flowchart LR
-  subgraph Light["Light batch (native)"]
-    IV["col0: IndicatorVector (native handle)"] --- PV["col1..n: PlaceholderVector"]
-  end
-  subgraph Heavy["Heavy batch (Java Arrow)"]
-    AW["col0..n: ArrowWritableColumnVector (JVM readable)"]
-  end
-  Light -->|"ColumnarBatches.load (C Data export)"| Heavy
-  Heavy -->|"ColumnarBatches.offload (C Data import)"| Light
-  N["C++ VeloxColumnarBatch (RowVectorPtr)"] --- IV
-```
+The two batch layouts, and how to convert between them.
+
+- **Light (native) batch.** Column 0 is an `IndicatorVector` holding a handle to a C++ `VeloxColumnarBatch` (a Velox `RowVectorPtr`). Columns 1..n are `PlaceholderVector`s with no data.
+- **Heavy (Java Arrow) batch.** Every column is an `ArrowWritableColumnVector` that JVM code can read.
+- **Light → heavy:** `ColumnarBatches.load` (Arrow C Data export).
+- **Heavy → light:** `ColumnarBatches.offload` (Arrow C Data import).
 
 ```java
 private static BatchType identifyBatchType(ColumnarBatch batch) {
@@ -2287,8 +2208,7 @@ override def next(): InternalRow = {
 
 Native side ([VeloxColumnarToRowConverter.cc](../../cpp/velox/operators/serializer/VeloxColumnarToRowConverter.cc)): uses Velox's `UnsafeRowFast` to serialize rows in Spark's `UnsafeRow` layout into a native buffer. The number of rows per chunk is bounded by `spark.gluten.sql.columnarToRowMemoryThreshold` (default `64MB`), so a huge batch doesn't allocate a huge row buffer.
 
-> [!WARNING]
-> The returned `UnsafeRow` points into native memory that's reused for the next chunk. Consumers that buffer rows must `copy()` them — standard Spark semantics for `UnsafeRow`, but easy to forget in custom code.
+> **Warning:** The returned `UnsafeRow` points into native memory that's reused for the next chunk. Consumers that buffer rows must `copy()` them — standard Spark semantics for `UnsafeRow`, but easy to forget in custom code.
 
 ### 6.2 `RowToVeloxColumnarExec` (rows → native)
 
@@ -2356,13 +2276,15 @@ VeloxColumnarToRow
 
 Data path per batch:
 
-```mermaid
-flowchart LR
-  S["Native scan + filter (Velox batch)"] --> C2R["VeloxColumnarToRow: serialize to UnsafeRow chunks"]
-  C2R --> P["Spark Project: evaluate UDF per row (codegen)"]
-  P --> R2C["RowToVeloxColumnar: copy rows, transpose to columns"]
-  R2C --> A["Native partial aggregation"]
-```
+The pipeline when a UDF in the middle falls back:
+
+1. Native scan + filter produce Velox batches.
+2. `VeloxColumnarToRow` serializes them into `UnsafeRow` chunks.
+3. A Spark `Project` evaluates the UDF row by row (whole-stage codegen).
+4. `RowToVeloxColumnar` copies the rows back and transposes them into columns.
+5. Native partial aggregation continues on Velox batches.
+
+Steps 2 and 4 are the extra cost of the fallback.
 
 Cost: two full data conversions and an extra stage boundary (`InputIteratorTransformer`). Fixes, in order of preference:
 1. Enable partial project (default) so only the UDF column is evaluated in the JVM.
@@ -2502,16 +2424,17 @@ Velox allocates with its own allocator outside the JVM heap. Spark's **off-heap*
 
 ### 3.1 JVM memory-target tree for one task
 
-```mermaid
-flowchart TB
-  TMM["Spark TaskMemoryManager (task)"] --> TMC["TreeMemoryConsumer (Spark MemoryConsumer, OFF_HEAP)"]
-  TMC --> ROOT["Capacity[unlimited] (legacyRoot) or Capacity[X] (isolatedRoot)"]
-  ROOT --> N1["NativePlanEvaluator-0 node (spillers: shrink, plan spill)"]
-  ROOT --> N1O["NativePlanEvaluator-0.OverAcquire"]
-  ROOT --> N2["ShuffleWriter runtime node (spillers: shrink, shuffle evict)"]
-  ROOT --> N3["VeloxColumnarToRow runtime node"]
-  N1 -.->|"virtual child stats"| S1["native pool usage (root, default_leaf, operator pools ...)"]
-```
+The JVM-side memory-target tree for one task, from the top:
+
+1. Spark's `TaskMemoryManager` for the task.
+2. One `TreeMemoryConsumer`: a Spark `MemoryConsumer` in `OFF_HEAP` mode.
+3. A root capacity node: unlimited (legacy root) or capped (isolated root).
+4. One child per native runtime, for example:
+   - `NativePlanEvaluator-0`, with spillers (shrink, plan spill), plus its `NativePlanEvaluator-0.OverAcquire` sibling;
+   - a `ShuffleWriter` runtime node, with spillers (shrink, shuffle evict);
+   - a `VeloxColumnarToRow` runtime node.
+
+Each runtime node also reports the native pool usage below it (root, `default_leaf`, operator pools) as virtual child stats.
 
 Each `Runtime` → one `NativeMemoryManager` → one `ReservationListener` → one consumer node (plus an `.OverAcquire` sibling). The decorator chain around a node:
 
@@ -2523,18 +2446,15 @@ ThrowOnOom( OverAcquire( [DynamicOffHeapSizing]( RetryOnOom( TreeNode ) ), [Dyna
 
 ### 3.2 Native side for one runtime
 
-```mermaid
-flowchart TB
-  JRL["Java ReservationListener (JNI)"] --- AL["AllocationListener (C++)"]
-  AL --> BAL["BlockAllocationListener (8MB blocks)"]
-  BAL --> AP["ArrowMemoryPool(s): shuffle, serializers"]
-  AL --> ARB["ListenableArbitrator (Velox MemoryArbitrator)"]
-  ARB --> MM["velox::memory::MemoryManager"]
-  MM --> RP["root pool 'root' (aggregate)"]
-  RP --> LP["default_leaf"]
-  RP --> QP["Velox Task / QueryCtx pools"]
-  QP --> OP["operator pools: HashBuild, Aggregation, OrderBy ..."]
-```
+The native side, from the JNI boundary down:
+
+1. The Java `ReservationListener` is called through the C++ `AllocationListener`.
+2. One branch: a `BlockAllocationListener` (8MB blocks) for the Arrow memory pools used by shuffle and serializers.
+3. Other branch: the `ListenableArbitrator` (a Velox `MemoryArbitrator`) governs the Velox `MemoryManager`.
+4. Under the Velox memory manager:
+   - the aggregate root pool `root`;
+   - under it, `default_leaf` and the Velox task / `QueryCtx` pools;
+   - under those, operator pools such as HashBuild, Aggregation and OrderBy.
 
 - `VeloxMemoryManager` creates a Velox `MemoryManager` with `arbitratorKind` = a freshly registered `ListenableArbitrator` factory, a root aggregate pool `"root"` (capacity `kMaxMemory`, with a `MemoryReclaimer`) and a leaf `"default_leaf"`.
 - The Velox task's `QueryCtx` uses `getAggregateMemoryPool()` as its pool, so all operator pools are children of `"root"`.
@@ -2805,20 +2725,14 @@ The key design point: Gluten does **not** run its own memory pressure detection;
 
 ## 3. Architecture
 
-```mermaid
-flowchart TB
-  SPK["Spark TaskMemoryManager: needs memory"] --> TMC["TreeMemoryConsumer.spill(size)"]
-  TMC --> ST["TreeMemoryTargets.spillTree(root, size)"]
-  ST --> PH1["Phase SHRINK (largest child first)"]
-  PH1 --> SH["NativeMemoryManager spiller: JNI shrink -> VeloxMemoryManager::shrink -> arbitrator.shrinkCapacity(pool, 0)"]
-  ST --> PH2["Phase SPILL (if still short)"]
-  PH2 --> PS["Plan spiller: ColumnarBatchOutIterator.spill -> spillFixedSize"]
-  PH2 --> SS["Shuffle spiller: shuffleWriter.reclaim(size)"]
-  PS --> ARB["ListenableArbitrator.shrinkCapacity(bytes) -> root pool reclaim"]
-  ARB --> OPS["Velox operator reclaimers: HashAggregation, HashBuild, OrderBy, Window, RowNumber, TopNRowNumber ..."]
-  OPS --> DISK["Spill files in Spark local dirs (gluten-spill/...)"]
-  SS --> DISK2["Shuffle spill files"]
-```
+What happens when Spark needs memory back.
+
+1. Spark's `TaskMemoryManager` needs memory and calls `TreeMemoryConsumer.spill(size)`.
+2. That calls `TreeMemoryTargets.spillTree(root, size)`, which works in two phases. In each phase, the largest child goes first.
+3. **Phase SHRINK.** The `NativeMemoryManager` spiller calls JNI shrink → `VeloxMemoryManager::shrink` → `arbitrator.shrinkCapacity(pool, 0)`. This only returns reserved-but-unused memory; there is no disk I/O.
+4. **Phase SPILL** (only if still short):
+   - Plan spiller: `ColumnarBatchOutIterator.spill` → `spillFixedSize` → `ListenableArbitrator.shrinkCapacity(bytes)` → root pool reclaim → Velox operator reclaimers (HashAggregation, HashBuild, OrderBy, Window, RowNumber, TopNRowNumber, …). These write spill files under Spark local dirs (`gluten-spill/...`).
+   - Shuffle spiller: `shuffleWriter.reclaim(size)` writes shuffle spill files.
 
 ---
 
@@ -2931,28 +2845,16 @@ The native writer frees memory by evicting cached partition payloads / partition
 
 ### 4.6 Re-entrant spill during allocation
 
-```mermaid
-sequenceDiagram
-  participant Op as Velox HashAggregation (task thread)
-  participant Arb as ListenableArbitrator.growCapacity
-  participant L as ReservationListener (JNI)
-  participant SP as Spark TaskMemoryManager
-  participant G as TreeMemoryConsumer.spill
-  participant WS as spillFixedSize
-  Op->>Arb: need +16MB
-  Arb->>L: allocationChanged(+16MB)
-  L->>SP: acquireExecutionMemory(16MB)
-  SP->>G: spill(16MB) (pool exhausted)
-  G->>WS: SHRINK then SPILL
-  WS->>Arb: shrinkCapacity -> pool.reclaim
-  Note over Arb: ScopedMemoryArbitrationContext allows reclaim of this task's operators
-  Arb-->>WS: freed bytes (spilled to disk)
-  WS-->>G: total reclaimed
-  G-->>SP: freed
-  SP-->>L: granted 16MB
-  L-->>Arb: ok
-  Arb-->>Op: pool grown, continue
-```
+A re-entrant spill: an operator needs memory while it is running.
+
+1. Velox `HashAggregation` (on the task thread) needs another 16MB and asks `ListenableArbitrator.growCapacity`.
+2. The arbitrator tells the JNI `ReservationListener`: allocation changed by +16MB.
+3. The listener calls Spark `acquireExecutionMemory(16MB)`.
+4. Spark's pool is exhausted, so it calls `TreeMemoryConsumer.spill(16MB)`.
+5. Gluten runs SHRINK, then SPILL, through `spillFixedSize`.
+6. `spillFixedSize` calls `shrinkCapacity` → `pool.reclaim`. A `ScopedMemoryArbitrationContext` allows reclaiming this task's own operators.
+7. Freed bytes (spilled to disk) flow back up: arbitrator → `spillFixedSize` → Gluten → Spark.
+8. Spark grants the 16MB to the listener, the arbitrator grows the pool, and the aggregation continues.
 
 `ScopedMemoryArbitrationContext` (set in `growCapacity`/`shrinkCapacity`) lets Velox perform reclaim while the requesting operator is mid-allocation (allowing temporary over-use per Velox's rules). If reclaim can't free enough, `RetryOnOom` spills the whole task tree once more, then `ThrowOnOom` fails the task ([06](#doc-06)).
 
@@ -3044,8 +2946,7 @@ Velox spill settings are passed to the Velox `QueryConfig` per task (defaults be
 | `spark.unsafe.sorter.spill.reader.buffer.size` | `1MB` (native fallback) | Spill read buffer |
 | `spark.shuffle.spill.diskWriteBufferSize` | `1MB` (native fallback) | Spill write buffer |
 
-> [!NOTE]
-> The JVM config name for max spill run rows (`maxSpillRunRows`) differs in case from the native constant (`MaxSpillRunRows`). If tuning it, verify which key reaches native code in your build (e.g. with `spark.gluten.sql.debug=true`, which logs the native session config).
+> **Note:** The JVM config name for max spill run rows (`maxSpillRunRows`) differs in case from the native constant (`MaxSpillRunRows`). If tuning it, verify which key reaches native code in your build (e.g. with `spark.gluten.sql.debug=true`, which logs the native session config).
 
 ---
 
@@ -3160,23 +3061,22 @@ It reuses Spark's shuffle *infrastructure* (map status, block resolver, fetch) i
 
 ## 3. Architecture
 
-```mermaid
-flowchart LR
-  subgraph Map["Map task (executor)"]
-    NS["Native stage output (Velox batches)"] --> PJ["ProjectExecTransformer: hash_partition_key = murmur3(keys)"]
-    PJ --> RZ["VeloxResizeBatches (coalesce)"]
-    RZ --> CSW["ColumnarShuffleWriter (JVM)"]
-    CSW -->|"JNI write(batch handle)"| W["Native writer: Hash / Sort / RssSort"]
-    W --> PW["LocalPartitionWriter: cache, merge, compress, spill"]
-    PW --> F["data file + index (IndexShuffleBlockResolver)"]
-  end
-  subgraph Reduce["Reduce task"]
-    FETCH["Spark ShuffleBlockFetcherIterator"] --> SER["ColumnarBatchSerializer.deserializeStream"]
-    SER -->|"JNI"| RD["VeloxShuffleReader: decompress + deserialize + merge"]
-    RD --> OUT["Velox batches -> InputIteratorTransformer of next native stage"]
-  end
-  F --> FETCH
-```
+The life of shuffle data.
+
+**Map task:**
+
+1. A native stage outputs Velox batches.
+2. A `ProjectExecTransformer` adds `hash_partition_key = murmur3(keys)`.
+3. `VeloxResizeBatches` merges small batches.
+4. `ColumnarShuffleWriter` (JVM) passes each batch handle over JNI to the native writer (hash, sort or RSS sort).
+5. `LocalPartitionWriter` caches, merges, compresses and spills partition data.
+6. The output is a data file plus an index file (`IndexShuffleBlockResolver`), the same layout Spark uses.
+
+**Reduce task:**
+
+1. Spark's `ShuffleBlockFetcherIterator` fetches the blocks.
+2. `ColumnarBatchSerializer.deserializeStream` hands them over JNI to `VeloxShuffleReader`, which decompresses, deserializes and merges them.
+3. The resulting Velox batches feed the next native stage through `InputIteratorTransformer`.
 
 ---
 
@@ -3486,24 +3386,23 @@ And since every following operator is native, the scan's output never leaves nat
 
 ## 3. Architecture
 
-```mermaid
-flowchart TB
-  subgraph Driver
-    FSE["FileSourceScanExec (Spark): partition pruning, DPP, file listing, FilePartitions"] --> OFF["OffloadOthers -> ScanTransformerFactory"]
-    OFF --> FSET["FileSourceScanExecTransformer"]
-    FSET --> VAL["validateScanExec: format, scheme, metadata, types + native validation"]
-    FSET --> PD["PushDownFilterToScan (filter conjuncts into scan)"]
-    FSET --> RR["doTransform: ReadRel(schema, filter)"]
-    FSET --> SI["getSplitInfos -> VeloxIteratorApi.genSplitInfo per FilePartition"]
-  end
-  subgraph Executor
-    RR2["ReadRel + SplitInfo"] --> TS["Velox TableScanNode (Hive connector)"]
-    TS --> RD["DWIO reader: Parquet / ORC (subfield filters, lazy vectors)"]
-    RD --> FS["Filesystem: local, HDFS, S3, GCS, ABFS (+ AsyncDataCache)"]
-  end
-  RR --> RR2
-  SI --> RR2
-```
+How a file scan is planned and executed.
+
+**Driver:**
+
+1. Spark's `FileSourceScanExec` does partition pruning, dynamic partition pruning (DPP) and file listing, and builds `FilePartition`s.
+2. `OffloadOthers` uses `ScanTransformerFactory` to create a `FileSourceScanExecTransformer`.
+3. The transformer:
+   - validates itself (`validateScanExec`: format, filesystem scheme, metadata, types, plus native validation);
+   - takes filter conjuncts pushed down by `PushDownFilterToScan`;
+   - emits a Substrait `ReadRel(schema, filter)` in `doTransform`;
+   - produces split infos through `getSplitInfos` → `VeloxIteratorApi.genSplitInfo`, one per `FilePartition`.
+
+**Executor:**
+
+1. The `ReadRel` and its `SplitInfo` become a Velox `TableScanNode` on the Hive connector.
+2. The DWIO reader reads Parquet or ORC with subfield filters and lazy vectors.
+3. Bytes come from the filesystem layer: local, HDFS, S3, GCS or ABFS, optionally through `AsyncDataCache`.
 
 ---
 
@@ -3745,24 +3644,22 @@ It deliberately **does not** replace Spark's commit protocol, so correctness pro
 
 ## 3. Architecture
 
-```mermaid
-flowchart TB
-  subgraph Driver
-    CMD["InsertIntoHadoopFsRelationCommand (DataWritingCommandExec)"] --> WF["WriteFilesExec (Spark 3.4+)"]
-    WF --> OFF["OffloadOthers -> WriteFilesExecTransformer (validate supportWriteFilesExec)"]
-    OFF --> CW["VeloxColumnarWriteFilesExec (columnar write node)"]
-    CW --> JOB["Spark FileCommitProtocol: setupJob ... commitJob"]
-  end
-  subgraph Task["Executor task"]
-    RDD["VeloxColumnarWriteFilesRDD.compute"] --> CP["SparkWriteFilesCommitProtocol.setupTask, newTaskAttemptTempPath, getFilename"]
-    CP --> INJ["injectWriteFilesTempPath(path, fileName) (JNI)"]
-    INJ --> NP["Native stage: ... -> TableWriteNode (Velox Parquet writer)"]
-    NP --> META["One result batch: per-file metadata (JSON fragments)"]
-    META --> RES["WriteTaskResult (files, partitions, stats) + commitTask"]
-  end
-  CW --> RDD
-  RES --> JOB
-```
+How a native write fits into Spark's write path.
+
+**Driver:**
+
+1. `InsertIntoHadoopFsRelationCommand` (under `DataWritingCommandExec`) plans a `WriteFilesExec` (Spark 3.4+).
+2. `OffloadOthers` replaces it with `WriteFilesExecTransformer` if `supportWriteFilesExec` passes.
+3. It is executed by `VeloxColumnarWriteFilesExec`, a columnar write node.
+4. Spark's `FileCommitProtocol` still runs `setupJob` … `commitJob`.
+
+**Each executor task:**
+
+1. `VeloxColumnarWriteFilesRDD.compute` asks `SparkWriteFilesCommitProtocol` for `setupTask`, the temp path and the file name.
+2. It passes them to native code with `injectWriteFilesTempPath(path, fileName)` (JNI).
+3. The native stage ends in a Velox `TableWriteNode`, which writes Parquet.
+4. Native code returns one result batch with per-file metadata (JSON fragments).
+5. The JVM builds Spark's `WriteTaskResult` (files, partitions, stats) and calls `commitTask`. The driver's `commitJob` then finishes the job.
 
 ---
 
@@ -3963,19 +3860,16 @@ What you'll observe: no `VeloxColumnarToRow` at the top of the write; output met
 
 ## 3. Architecture
 
-```mermaid
-flowchart LR
-  E["Catalyst Expression"] --> C["ExpressionConverter.replaceWithExpressionTransformer"]
-  C --> S{"special case? UDF, StaticInvoke, Invoke, Hive UDF"}
-  S -->|"yes"| SP["UDFMappings / staticInvokeMap / backend generator"]
-  S -->|"no"| M["ExpressionMappings: class -> name (minus blacklist)"]
-  M -->|"missing"| F["GlutenNotSupportException -> fallback"]
-  M --> B["SparkPlanExecApi.extraExpressionConverter (backend-specific)"]
-  B --> T["transformExpression -> ExpressionTransformer tree"]
-  T --> SUB["doTransform -> Substrait ScalarFunction(funcId of 'name:sig')"]
-  SUB --> NV["Native: findVeloxFunction + toVeloxExpr + ExprSet compile (validation)"]
-  NV --> VF["Velox function registry (sparksql + aggregates + window + overwrites + UDF libs)"]
-```
+How one Catalyst expression becomes a native function call.
+
+1. `ExpressionConverter.replaceWithExpressionTransformer` receives the expression.
+2. Special cases first (UDF, `StaticInvoke`, `Invoke`, Hive UDF): `UDFMappings`, the static-invoke maps, or a backend generator handle them.
+3. Otherwise, look up `ExpressionMappings` (class → function name), minus anything in the blacklist. If it's missing, throw `GlutenNotSupportException`, and the operator falls back.
+4. The backend may adjust it in `SparkPlanExecApi.extraExpressionConverter`.
+5. `transformExpression` builds an `ExpressionTransformer` tree.
+6. `doTransform` emits a Substrait `ScalarFunction` whose function id points to `name:signature`.
+7. Native code resolves it (`findVeloxFunction`, `toVeloxExpr`) and compiles it with `ExprSet`. During planning, this same compile is the native validation.
+8. The function comes from the Velox registry: Spark SQL functions, aggregates, window functions, Gluten overwrites and UDF libraries.
 
 ---
 
@@ -4284,23 +4178,14 @@ Join type mapping (`substraitJoinType`): Inner, FullOuter, Left/Right Outer (wit
 
 ### 3.3 Broadcast hash join end to end
 
-```mermaid
-sequenceDiagram
-  participant D as Driver
-  participant BX as ColumnarBroadcastExchangeExec
-  participant E as Executors (build side tasks)
-  participant P as Executor (probe task)
-  participant C as VeloxBroadcastBuildSideCache
-  D->>BX: relationFuture
-  BX->>E: run build-side native stage; serialize Velox batches
-  E-->>BX: serialized batches (collect)
-  BX->>BX: createBroadcastRelation -> ColumnarBuildSideRelation (or Unsafe off-heap)
-  BX->>D: sparkContext.broadcast(relation)
-  P->>C: getOrBuildBroadcastHashTable(broadcast, id)
-  C->>C: first task on executor builds Velox hash table (native pointer)
-  C-->>P: BroadcastHashTable(pointer)
-  P->>P: HashProbe uses shared table (no rebuild per task)
-```
+A broadcast hash join, end to end.
+
+1. The driver asks `ColumnarBroadcastExchangeExec` for its `relationFuture`.
+2. The exchange runs the build-side native stage on executors. They serialize their Velox batches and send them back (collect).
+3. The exchange builds a `ColumnarBuildSideRelation` (or the off-heap `UnsafeColumnarBuildSideRelation`) and broadcasts it with `sparkContext.broadcast`.
+4. A probe task on an executor calls `VeloxBroadcastBuildSideCache.getOrBuildBroadcastHashTable(broadcast, id)`.
+5. The first task on that executor builds the Velox hash table and caches a native pointer.
+6. Every probe task gets the same `BroadcastHashTable`. Velox `HashProbe` uses the shared table, so it is not rebuilt per task.
 
 - `ColumnarBroadcastExchangeExec.relationFuture` runs `createBroadcastRelation(mode, child, ...)` (metrics `collectTime`, `broadcastTime`, `dataSize`, `numOutputRows`) and broadcasts it.
 - Gluten ignores `HashedRelationBroadcastMode.isNullAware` in the relation (documented in code) — null-aware semantics are handled in the join itself.
@@ -4553,22 +4438,14 @@ In the SQL UI, open the `ShuffledHashJoinExecTransformer` nodes. The build-side 
 
 ### 1.1 How native metrics reach the UI
 
-```mermaid
-sequenceDiagram
-  participant D as Driver (planning)
-  participant W as WholeStageTransformer
-  participant T as Task (executor)
-  participant N as Native (WholeStageResultIterator)
-  participant UI as Spark SQL UI
-  D->>W: doWholeStageTransform: SubstraitContext records operatorId -> relIds, JoinParams, AggParams
-  W->>T: RDD with metricsUpdatingFunction(child, relMap, joinParams, aggParams)
-  T->>N: run task
-  N->>N: collectMetrics(): per Velox plan node stats (ordered node ids)
-  T->>N: on iterator completion: IteratorMetricsJniWrapper.fetch -> nativeFetchMetrics
-  N-->>T: arrays per metric (inputRows, outputRows, cpu, wall, peakMemory, spill*, scan IO ...)
-  T->>T: MetricsUtil walks MetricsUpdaterTree, assigns OperatorMetrics to each transformer's MetricsUpdater
-  T-->>UI: SQLMetric accumulators updated
-```
+How native metrics reach the Spark UI.
+
+1. **Planning (driver).** During `doWholeStageTransform`, `SubstraitContext` records which Substrait rels belong to which operator, plus join and aggregation parameters.
+2. The RDD carries a `metricsUpdatingFunction` built from that information.
+3. **Execution (task).** Velox collects per-node stats while the task runs (`collectMetrics`, ordered by node id).
+4. When the iterator finishes, the JVM calls `IteratorMetricsJniWrapper.fetch` → `nativeFetchMetrics`. Native code returns one array per metric: input/output rows, CPU, wall time, peak memory, spill, scan IO, ….
+5. `MetricsUtil` walks the `MetricsUpdaterTree` and gives each transformer's `MetricsUpdater` its operator metrics.
+6. The `SQLMetric` accumulators update, and the numbers appear in the SQL UI.
 
 - `MetricsUtil.genMetricsUpdatingFunction` ([source](../../backends-velox/src/main/scala/org/apache/gluten/metrics/MetricsUtil.scala#L30-L80)) builds a `MetricsUpdaterTree` mirroring the transformer tree (joins visit build + streamed sides; transformers with `MetricsUpdater.None` are skipped) and consumes native metrics in Rel-id order.
   - One Spark operator may correspond to several Velox nodes (e.g. join + pre/post projections); metrics are **merged** (`mergeMetrics`: input from the last, output from the first, times summed).
@@ -4639,8 +4516,7 @@ Configs are built with `buildConf` (dynamic, session-settable) or `buildStaticCo
 
 Native code turns session config into Velox `QueryConfig` and Hive connector session config in `WholeStageResultIterator::getQueryContextConf` / `createNewVeloxQueryCtx`.
 
-> [!TIP]
-> To verify what native code actually received, enable `spark.gluten.sql.debug=true`: `VeloxBackend` logs its config at init and `VeloxRuntime` logs the session config when creating result iterators.
+> **Tip:** To verify what native code actually received, enable `spark.gluten.sql.debug=true`: `VeloxBackend` logs its config at init and `VeloxRuntime` logs the session config when creating result iterators.
 
 ### 3.3 Most important configs (with v1.7.0 defaults)
 
@@ -4685,25 +4561,29 @@ Native code turns session config into Velox `QueryConfig` and Hive connector ses
 
 ## 5. Troubleshooting playbook
 
-```mermaid
-flowchart TD
-  S["Problem"] --> Q1{"Query slower than vanilla?"}
-  S --> Q2{"Wrong results?"}
-  S --> Q3{"Task failure / exception?"}
-  S --> Q4{"Executor lost / crash?"}
-  Q1 --> F1["Check fallbacks: Gluten UI tab, df.fallbackSummary, logs 'Validation failed for plan'"]
-  F1 --> F2["Count transitions in EXPLAIN; enable partial project; fix unsupported exprs or set stage fallback threshold"]
-  F2 --> F3["Inspect metrics: scan IO, shuffle split/sort, spill, C2R time"]
-  Q2 --> W1["Reproduce small; compare with spark.gluten.enabled=false"]
-  W1 --> W2["Bisect by disabling operators (spark.gluten.sql.columnar.<op>=false) or blacklisting functions"]
-  W2 --> W3["Check velox-backend-limitations.md; file issue with plan + data"]
-  Q3 --> E1{"OOM message?"}
-  E1 -->|"Not enough spark off-heap execution memory"| M1["Read memory dump; raise off-heap / lower cores / check spill configs"]
-  E1 -->|"GlutenException: Velox error"| E2["Read native message; enable printStackOnFailure; dump task with benchmark_task + saveDir"]
-  Q4 --> C1{"Exit 137 / container killed?"}
-  C1 -->|"yes"| C2["Raise memoryOverhead; profile native memory (jemalloc)"]
-  C1 -->|"no, SIGSEGV / hs_err"| C3["Collect hs_err + core; replay task in GenericBenchmark; debug build"]
-```
+A troubleshooting decision tree. Start from the symptom.
+
+**Query slower than vanilla Spark?**
+
+1. Check fallbacks: Gluten UI tab, `df.fallbackSummary()`, log lines `Validation failed for plan`.
+2. Count transitions in EXPLAIN. Turn on partial project, fix unsupported expressions, or set a stage fallback threshold.
+3. Inspect metrics: scan IO, shuffle split/sort time, spill, C2R time.
+
+**Wrong results?**
+
+1. Reproduce on small data and compare with `spark.gluten.enabled=false`.
+2. Bisect by disabling operators (`spark.gluten.sql.columnar.<op>=false`) or blacklisting functions.
+3. Check `velox-backend-limitations.md`. File an issue with the plan and data.
+
+**Task fails with an exception?**
+
+- "Not enough spark off-heap execution memory": read the memory dump; raise off-heap, lower cores, or check spill configs (worked case in §6.2).
+- "GlutenException: Velox error": read the native message, enable `printStackOnFailure`, and dump the task with `benchmark_task` + `saveDir`.
+
+**Executor lost or crashed?**
+
+- Exit code 137 / container killed: raise `memoryOverhead` and profile native memory (jemalloc).
+- SIGSEGV or `hs_err` file: collect `hs_err` and the core dump, replay the task in `GenericBenchmark`, use a debug build.
 
 ### 5.1 Fallback investigation
 
@@ -4779,8 +4659,7 @@ How to read and act on it:
    - if many small fallbacks make a stage slower than vanilla Spark, set `spark.gluten.sql.columnar.wholeStage.fallback.threshold`.
 5. **Verify**: `numFallbackNodes` drops to 0 and the Gluten UI tab shows no fallback for this query.
 
-> [!TIP]
-> In CI, set `spark.gluten.sql.columnar.failOnFallback=true` so that a new fallback fails the test instead of quietly slowing it down.
+> **Tip:** In CI, set `spark.gluten.sql.columnar.failOnFallback=true` so that a new fallback fails the test instead of quietly slowing it down.
 
 ### 6.2 Case B — Task fails with "Not enough spark off-heap execution memory"
 
@@ -4901,15 +4780,16 @@ How to act:
 
 ## 3. Building
 
-```mermaid
-flowchart LR
-  A["ep/build-velox: get-velox.sh (pinned Velox fork/branch)"] --> B["builddeps-veloxbe.sh: build Velox + deps (vcpkg optional)"]
-  B --> C["cpp/ CMake: libgluten.so + libvelox.so"]
-  C --> D["./build/mvn -Pbackends-velox -Pspark-X.Y: Scala/Java modules"]
-  D --> E["package/: gluten-velox-bundle jar (jars + native libs)"]
-  E --> F["spark-shell / spark-submit --jars bundle"]
-  C -.->|"incremental rebuild: build_gluten_cpp"| D
-```
+The build pipeline, in order.
+
+1. `ep/build-velox/get-velox.sh` fetches the pinned Velox fork and branch.
+2. `builddeps-veloxbe.sh` builds Velox and its dependencies (vcpkg optional).
+3. CMake under `cpp/` builds `libgluten.so` and `libvelox.so`.
+4. `./build/mvn -Pbackends-velox -Pspark-X.Y` builds the Scala/Java modules.
+5. `package/` produces the `gluten-velox-bundle` jar, containing the jars and the native libraries.
+6. You run it with `spark-shell` / `spark-submit --jars <bundle>`.
+
+For incremental work after a C++ change, run `builddeps-veloxbe.sh build_gluten_cpp` (step 3 only), then step 4 again.
 
 The order matters. Maven packages the native libraries built in the step before it. If you change C++ and skip the native rebuild, the jar builds fine but fails at runtime (see [AGENTS.md](../../AGENTS.md)).
 
@@ -4959,8 +4839,7 @@ export PROMPT_ALWAYS_RESPOND=y          # auto-confirm system package / vcpkg pr
 | Scala/Java only | `./build/mvn package -Pbackends-velox -Pspark-3.5 -DskipTests` (native libs reused) |
 | `gluten-core`/`gluten-substrait` with JNI/Substrait changes | Rebuild **native too** — Maven succeeds but JNI/Substrait mismatches fail at runtime (AGENTS.md pitfall) |
 
-> [!TIP]
-> After a clean checkout run `./build/mvn install ... -DskipTests` once, because `gluten-ut` and `backends-velox` resolve sibling modules from the local Maven repo.
+> **Tip:** After a clean checkout run `./build/mvn install ... -DskipTests` once, because `gluten-ut` and `backends-velox` resolve sibling modules from the local Maven repo.
 
 ### 3.4 Maven profiles
 
@@ -5145,8 +5024,7 @@ bash ./ep/build-clickhouse/src/build-clickhouse.sh
 # then set spark.plugins=org.apache.gluten.GlutenPlugin and point Gluten to libch.so (see ClickHouse.md)
 ```
 
-> [!NOTE]
-> The rest of this series focuses on Velox; many concepts (components, rules, validation, fallback, transitions, memory targets, Substrait) apply equally to ClickHouse, but operator details, configs and native internals differ.
+> **Note:** The rest of this series focuses on Velox; many concepts (components, rules, validation, fallback, transitions, memory targets, Substrait) apply equally to ClickHouse, but operator details, configs and native internals differ.
 
 ---
 
@@ -5409,26 +5287,22 @@ So each format needs:
 
 ## 3. Architecture
 
-```mermaid
-flowchart TD
-  subgraph JVM["Driver (JVM)"]
-    A["Spark planner + Delta/Iceberg extensions"] --> B["FileSourceScanExec (Delta) / BatchScanExec (Iceberg)"]
-    B --> C{"Component offload rules"}
-    C -->|Delta| D["DeltaScanTransformer"]
-    C -->|Iceberg| E["IcebergScanTransformer"]
-    D --> F["DeltaPostTransformRules: strip DV filter, column mapping"]
-    D --> G["Splits: DeltaLocalFilesNode + serialized DV bitmap"]
-    E --> H["Splits: IcebergLocalFilesNode + delete files"]
-  end
-  subgraph Native["Executor (Velox)"]
-    G --> I["parseDeltaSplitInfo -> DeltaSplitInfo"]
-    H --> J["parseIcebergSplitInfo -> IcebergSplitInfo"]
-    I --> K["HiveDeltaSplit on Delta connector"]
-    J --> L["HiveIcebergSplit on Hive connector"]
-    K --> M["DeltaSplitReader: Parquet read + DV mask"]
-    L --> N["IcebergSplitReader: Parquet/ORC read + position deletes"]
-  end
-```
+How Delta and Iceberg scans flow from planning to native reading.
+
+**Driver (JVM):**
+
+1. Spark plans the query with the Delta/Iceberg extensions. The result is a `FileSourceScanExec` (Delta) or a `BatchScanExec` (Iceberg).
+2. The component offload rules replace them:
+   - Delta → `DeltaScanTransformer`, followed by `DeltaPostTransformRules` (strip the DV filter, handle column mapping);
+   - Iceberg → `IcebergScanTransformer`.
+3. Splits are built:
+   - Delta: `DeltaLocalFilesNode` with the serialized deletion-vector bitmap;
+   - Iceberg: `IcebergLocalFilesNode` with the delete files.
+
+**Executor (Velox):**
+
+1. Delta: `parseDeltaSplitInfo` → `DeltaSplitInfo` → `HiveDeltaSplit` on the Delta connector. `DeltaSplitReader` reads Parquet and applies the DV mask.
+2. Iceberg: `parseIcebergSplitInfo` → `IcebergSplitInfo` → `HiveIcebergSplit` on the Hive connector. `IcebergSplitReader` reads Parquet/ORC and applies position deletes.
 
 Component wiring (both are legacy-transform rules running in the heuristic planner, see [02 · Planning](#doc-02)):
 
@@ -5481,23 +5355,17 @@ These transformers drop the wrapper from the native expression and keep the metr
 
 ### 4.3 How a deletion vector reaches Velox
 
-```mermaid
-sequenceDiagram
-  participant D as Delta (PreprocessTableWithDVsStrategy)
-  participant P as PartitionedFile metadata
-  participant S as DeltaDeletionVectorScanInfo (driver)
-  participant FS as Table storage
-  participant N as Velox DeltaSplitReader
-  D->>P: put FILE_ROW_INDEX_FILTER_ID_ENCODED (base64 DV descriptor) + FILE_ROW_INDEX_FILTER_TYPE
-  S->>P: read otherConstantMetadataColumnValues
-  S->>S: DeletionVectorDescriptor.deserializeFromBase64
-  S->>S: resolveTablePath (walk up partition dirs until _delta_log exists)
-  S->>FS: StoredBitmap.create(desc, tablePath).load(HadoopFileSystemDVStore)
-  S->>S: serializeAsByteArray(RoaringBitmapArrayFormat.Portable)
-  S->>N: Substrait ReadRel FileOrFiles.delta {filter type, cardinality, bytes}
-  N->>N: parseDeltaSplitInfo -> DeltaDeletionVectorDescriptor::serialized
-  N->>N: read Parquet rows, drop/keep by file-global row index
-```
+How a deletion vector travels from Delta's metadata to Velox.
+
+1. During planning, Delta's `PreprocessTableWithDVsStrategy` stores two values in each file's metadata: `FILE_ROW_INDEX_FILTER_ID_ENCODED` (a base64 DV descriptor) and `FILE_ROW_INDEX_FILTER_TYPE`.
+2. On the driver, `DeltaDeletionVectorScanInfo` reads those values (`otherConstantMetadataColumnValues`).
+3. It decodes the descriptor (`DeletionVectorDescriptor.deserializeFromBase64`).
+4. It finds the table root (`resolveTablePath`), walking up the partition directories until `_delta_log` exists.
+5. It loads the bitmap from storage (`StoredBitmap.create(desc, tablePath).load(HadoopFileSystemDVStore)`).
+6. It serializes it as a portable Roaring bitmap (`RoaringBitmapArrayFormat.Portable`).
+7. The bytes go into the Substrait `ReadRel` (`FileOrFiles.delta`: filter type, cardinality, bytes).
+8. On the executor, `parseDeltaSplitInfo` builds a `DeltaDeletionVectorDescriptor`.
+9. `DeltaSplitReader` reads Parquet rows and drops or keeps each row by its file-global row index.
 
 Things to notice:
 - **DV bitmaps are loaded on the driver** while splits are generated, and they travel **inline in the Substrait plan** for each task.
@@ -5561,22 +5429,15 @@ With `spark.gluten.sql.columnar.backend.velox.delta.enableNativeWrite=true`, `Of
 
 The wrapper runs the original command inside `TransactionExecutionObserver.withObserver(UseColumnarDeltaTransactionLog)`. That observer **swaps the `OptimisticTransaction` for a `GlutenOptimisticTransaction`** ([DeltaWriteOperators.scala](../../backends-velox/src-delta33/main/scala/org/apache/spark/sql/execution/datasources/v2/DeltaWriteOperators.scala)). Delta's own command logic (conflict detection, commit, log) is unchanged. Only `writeFiles` is replaced:
 
-```mermaid
-flowchart TD
-  A["GlutenOptimisticTransaction.writeFiles"] --> B["normalizeData, constraints, stats schema"]
-  B --> C{"constraints empty?"}
-  C -->|yes| D["plan as is (no invariant checker, avoids extra transitions)"]
-  C -->|no| E["DeltaInvariantCheckerExec(plan)"]
-  D --> F["toVeloxPlan: Transitions.toBatchPlan(VeloxBatchType) or AQE supportsColumnar"]
-  E --> F
-  F --> G{"optimized write and not OPTIMIZE?"}
-  G -->|yes| H["GlutenDeltaOptimizedWriterExec (columnar shuffle); fallback DeltaOptimizedWriterExec"]
-  G -->|no| I["Velox plan"]
-  H --> J["GlutenDeltaFileFormatWriter.write (GlutenDeltaParquetFileFormat)"]
-  I --> J
-  J --> K["Stats trackers wrapped: GlutenDeltaJobStatsTracker / RowCounting / Fallback"]
-  K --> L["AddFile actions -> Delta commit"]
-```
+What `GlutenOptimisticTransaction.writeFiles` does.
+
+1. Normalize the data and collect constraints and the stats schema.
+2. If there are constraints, wrap the plan in `DeltaInvariantCheckerExec`. If there are none, skip it; this avoids extra transitions.
+3. Turn the plan into a Velox plan: `Transitions.toBatchPlan(VeloxBatchType)`, or set `supportsColumnar` on the AQE plan.
+4. If optimized writes are on and this isn't `OPTIMIZE`, add `GlutenDeltaOptimizedWriterExec` (columnar shuffle). If that can't be created, fall back to `DeltaOptimizedWriterExec`.
+5. Write with `GlutenDeltaFileFormatWriter.write`, using `GlutenDeltaParquetFileFormat`.
+6. Wrap the stats trackers: `GlutenDeltaJobStatsTracker`, the row-counting tracker, or the fallback tracker.
+7. Return the `AddFile` actions, which Delta commits.
 
 Details:
 - Writer options are reduced to `maxRecordsPerFile`, `compression` and `writePartitionColumns`. The last one is true when IcebergCompat (UniForm) is enabled, because Iceberg requires partition columns inside the data files.
@@ -5646,8 +5507,7 @@ Iceberg's Spark functions (`bucket`, `truncate`, `years`, `months`, `days`, `hou
 | `supportAppendDataExec` / `supportReplaceDataExec` / `supportOverwriteByExpression` / `supportOverwritePartitionsDynamic` / `supportWriteToDataSourceV2` | = `enableEnhancedFeatures()` | [VeloxBackend.scala](../../backends-velox/src/main/scala/org/apache/gluten/backendsapi/velox/VeloxBackend.scala) |
 | `Validators.FallbackByBackendSettings` fails these execs if unsupported | — | [Validators.scala](../../gluten-substrait/src/main/scala/org/apache/gluten/extension/columnar/validator/Validators.scala) |
 
-> [!IMPORTANT]
-> The official Velox bundle is built without enhanced features, so there `isEnhancedFeaturesEnabled` returns false and **all five Iceberg write execs fall back**. That matches "Writing: Fallback" in `VeloxIceberg.md`. The offload code described below runs only on enhanced builds (the IBM Velox fork features).
+> **Important:** The official Velox bundle is built without enhanced features, so there `isEnhancedFeaturesEnabled` returns false and **all five Iceberg write execs fall back**. That matches "Writing: Fallback" in `VeloxIceberg.md`. The offload code described below runs only on enhanced builds (the IBM Velox fork features).
 
 When `supportAppendDataExec` is true, `VeloxRuleApi` also injects the shim's `RewriteCreateTableAsSelect` planner strategy, so CTAS/RTAS turn into append-style writes that can be offloaded.
 
@@ -5676,26 +5536,18 @@ When `supportAppendDataExec` is true, `VeloxRuleApi` also injects the shim's `Re
 
 ### 7.3 Execution
 
-```mermaid
-sequenceDiagram
-  participant E as AbstractIcebergWriteExec (driver)
-  participant F as IcebergDataWriteFactory
-  participant W as IcebergColumnarBatchDataWriter (task)
-  participant J as IcebergWriteJniWrapper
-  participant V as Velox IcebergWriter / IcebergDataSink
-  participant C as Iceberg SparkWrite (driver commit)
-  E->>F: write schema, Parquet, data dir, codec, PartitionSpec (proto), sort order, nested field ids (proto), page size, target file size, queryId
-  F->>W: createWriter(partitionId, taskId)
-  W->>J: init(cSchema, format, dir, codec, spec, fields, confs)
-  loop each ColumnarBatch
-    W->>J: write(handle, batch)
-    J->>V: IcebergDataSink.appendData
-  end
-  W->>J: commit(handle) -> String[] DataFile JSON
-  W->>W: parse DataFileJson + PartitionDataJson + MetricsWrapper -> Iceberg DataFile
-  W-->>C: WriterCommitMessage(DataFiles)
-  C->>C: Iceberg commit (append/overwrite/rowDelta)
-```
+A native Iceberg write, step by step.
+
+1. On the driver, `AbstractIcebergWriteExec` builds an `IcebergDataWriteFactory` with:
+   - write schema, Parquet format, data directory, codec;
+   - `PartitionSpec` and nested field ids (as protobuf), sort order;
+   - page size, target file size and query id.
+2. In each task, the factory creates an `IcebergColumnarBatchDataWriter`.
+3. The writer calls `IcebergWriteJniWrapper.init(...)` with the schema, format, directory, codec, spec, fields and configs.
+4. For each `ColumnarBatch`, it calls `write(handle, batch)`. Velox's `IcebergWriter` appends the batch to an `IcebergDataSink`.
+5. At the end, it calls `commit(handle)` and gets back an array of DataFile JSON strings.
+6. It parses them (`DataFileJson`, `PartitionDataJson`, `MetricsWrapper`) into Iceberg `DataFile`s and returns them as a `WriterCommitMessage`.
+7. On the driver, Iceberg's own `SparkWrite` commits them (append, overwrite or row delta).
 
 - Velox computes partition values for identity and transform partitions. Iceberg partition specs and nested field ids are passed as protobuf (`IcebergPartitionSpec.proto`, `IcebergNestedField.proto`) so that Velox can write correct field ids into Parquet.
 - `write.parquet.page-size-bytes` and the target file size are forwarded unless the user overrides them in the session.

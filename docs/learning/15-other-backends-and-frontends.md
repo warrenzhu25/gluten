@@ -62,8 +62,7 @@ bash ./ep/build-clickhouse/src/build-clickhouse.sh
 # then set spark.plugins=org.apache.gluten.GlutenPlugin and point Gluten to libch.so (see ClickHouse.md)
 ```
 
-> [!NOTE]
-> The rest of this series focuses on Velox; many concepts (components, rules, validation, fallback, transitions, memory targets, Substrait) apply equally to ClickHouse, but operator details, configs and native internals differ.
+> **Note:** The rest of this series focuses on Velox; many concepts (components, rules, validation, fallback, transitions, memory targets, Substrait) apply equally to ClickHouse, but operator details, configs and native internals differ.
 
 ---
 

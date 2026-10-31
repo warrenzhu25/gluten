@@ -72,16 +72,17 @@ Velox allocates with its own allocator outside the JVM heap. Spark's **off-heap*
 
 ### 3.1 JVM memory-target tree for one task
 
-```mermaid
-flowchart TB
-  TMM["Spark TaskMemoryManager (task)"] --> TMC["TreeMemoryConsumer (Spark MemoryConsumer, OFF_HEAP)"]
-  TMC --> ROOT["Capacity[unlimited] (legacyRoot) or Capacity[X] (isolatedRoot)"]
-  ROOT --> N1["NativePlanEvaluator-0 node (spillers: shrink, plan spill)"]
-  ROOT --> N1O["NativePlanEvaluator-0.OverAcquire"]
-  ROOT --> N2["ShuffleWriter runtime node (spillers: shrink, shuffle evict)"]
-  ROOT --> N3["VeloxColumnarToRow runtime node"]
-  N1 -.->|"virtual child stats"| S1["native pool usage (root, default_leaf, operator pools ...)"]
-```
+The JVM-side memory-target tree for one task, from the top:
+
+1. Spark's `TaskMemoryManager` for the task.
+2. One `TreeMemoryConsumer`: a Spark `MemoryConsumer` in `OFF_HEAP` mode.
+3. A root capacity node: unlimited (legacy root) or capped (isolated root).
+4. One child per native runtime, for example:
+   - `NativePlanEvaluator-0`, with spillers (shrink, plan spill), plus its `NativePlanEvaluator-0.OverAcquire` sibling;
+   - a `ShuffleWriter` runtime node, with spillers (shrink, shuffle evict);
+   - a `VeloxColumnarToRow` runtime node.
+
+Each runtime node also reports the native pool usage below it (root, `default_leaf`, operator pools) as virtual child stats.
 
 Each `Runtime` → one `NativeMemoryManager` → one `ReservationListener` → one consumer node (plus an `.OverAcquire` sibling). The decorator chain around a node:
 
@@ -93,18 +94,15 @@ ThrowOnOom( OverAcquire( [DynamicOffHeapSizing]( RetryOnOom( TreeNode ) ), [Dyna
 
 ### 3.2 Native side for one runtime
 
-```mermaid
-flowchart TB
-  JRL["Java ReservationListener (JNI)"] --- AL["AllocationListener (C++)"]
-  AL --> BAL["BlockAllocationListener (8MB blocks)"]
-  BAL --> AP["ArrowMemoryPool(s): shuffle, serializers"]
-  AL --> ARB["ListenableArbitrator (Velox MemoryArbitrator)"]
-  ARB --> MM["velox::memory::MemoryManager"]
-  MM --> RP["root pool 'root' (aggregate)"]
-  RP --> LP["default_leaf"]
-  RP --> QP["Velox Task / QueryCtx pools"]
-  QP --> OP["operator pools: HashBuild, Aggregation, OrderBy ..."]
-```
+The native side, from the JNI boundary down:
+
+1. The Java `ReservationListener` is called through the C++ `AllocationListener`.
+2. One branch: a `BlockAllocationListener` (8MB blocks) for the Arrow memory pools used by shuffle and serializers.
+3. Other branch: the `ListenableArbitrator` (a Velox `MemoryArbitrator`) governs the Velox `MemoryManager`.
+4. Under the Velox memory manager:
+   - the aggregate root pool `root`;
+   - under it, `default_leaf` and the Velox task / `QueryCtx` pools;
+   - under those, operator pools such as HashBuild, Aggregation and OrderBy.
 
 - `VeloxMemoryManager` creates a Velox `MemoryManager` with `arbitratorKind` = a freshly registered `ListenableArbitrator` factory, a root aggregate pool `"root"` (capacity `kMaxMemory`, with a `MemoryReclaimer`) and a leaf `"default_leaf"`.
 - The Velox task's `QueryCtx` uses `getAggregateMemoryPool()` as its pool, so all operator pools are children of `"root"`.

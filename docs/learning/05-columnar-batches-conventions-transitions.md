@@ -56,18 +56,12 @@ Benefits: new formats or backends plug in without touching planner rules; transi
 
 ## 3. The batch flavors
 
-```mermaid
-flowchart LR
-  subgraph Light["Light batch (native)"]
-    IV["col0: IndicatorVector (native handle)"] --- PV["col1..n: PlaceholderVector"]
-  end
-  subgraph Heavy["Heavy batch (Java Arrow)"]
-    AW["col0..n: ArrowWritableColumnVector (JVM readable)"]
-  end
-  Light -->|"ColumnarBatches.load (C Data export)"| Heavy
-  Heavy -->|"ColumnarBatches.offload (C Data import)"| Light
-  N["C++ VeloxColumnarBatch (RowVectorPtr)"] --- IV
-```
+The two batch layouts, and how to convert between them.
+
+- **Light (native) batch.** Column 0 is an `IndicatorVector` holding a handle to a C++ `VeloxColumnarBatch` (a Velox `RowVectorPtr`). Columns 1..n are `PlaceholderVector`s with no data.
+- **Heavy (Java Arrow) batch.** Every column is an `ArrowWritableColumnVector` that JVM code can read.
+- **Light → heavy:** `ColumnarBatches.load` (Arrow C Data export).
+- **Heavy → light:** `ColumnarBatches.offload` (Arrow C Data import).
 
 ```java
 private static BatchType identifyBatchType(ColumnarBatch batch) {
@@ -157,8 +151,7 @@ override def next(): InternalRow = {
 
 Native side ([VeloxColumnarToRowConverter.cc](../../cpp/velox/operators/serializer/VeloxColumnarToRowConverter.cc)): uses Velox's `UnsafeRowFast` to serialize rows in Spark's `UnsafeRow` layout into a native buffer. The number of rows per chunk is bounded by `spark.gluten.sql.columnarToRowMemoryThreshold` (default `64MB`), so a huge batch doesn't allocate a huge row buffer.
 
-> [!WARNING]
-> The returned `UnsafeRow` points into native memory that's reused for the next chunk. Consumers that buffer rows must `copy()` them — standard Spark semantics for `UnsafeRow`, but easy to forget in custom code.
+> **Warning:** The returned `UnsafeRow` points into native memory that's reused for the next chunk. Consumers that buffer rows must `copy()` them — standard Spark semantics for `UnsafeRow`, but easy to forget in custom code.
 
 ### 6.2 `RowToVeloxColumnarExec` (rows → native)
 
@@ -226,13 +219,15 @@ VeloxColumnarToRow
 
 Data path per batch:
 
-```mermaid
-flowchart LR
-  S["Native scan + filter (Velox batch)"] --> C2R["VeloxColumnarToRow: serialize to UnsafeRow chunks"]
-  C2R --> P["Spark Project: evaluate UDF per row (codegen)"]
-  P --> R2C["RowToVeloxColumnar: copy rows, transpose to columns"]
-  R2C --> A["Native partial aggregation"]
-```
+The pipeline when a UDF in the middle falls back:
+
+1. Native scan + filter produce Velox batches.
+2. `VeloxColumnarToRow` serializes them into `UnsafeRow` chunks.
+3. A Spark `Project` evaluates the UDF row by row (whole-stage codegen).
+4. `RowToVeloxColumnar` copies the rows back and transposes them into columns.
+5. Native partial aggregation continues on Velox batches.
+
+Steps 2 and 4 are the extra cost of the fallback.
 
 Cost: two full data conversions and an extra stage boundary (`InputIteratorTransformer`). Fixes, in order of preference:
 1. Enable partial project (default) so only the UDF column is evaluated in the JVM.

@@ -51,19 +51,16 @@
 
 ## 3. Architecture
 
-```mermaid
-flowchart LR
-  E["Catalyst Expression"] --> C["ExpressionConverter.replaceWithExpressionTransformer"]
-  C --> S{"special case? UDF, StaticInvoke, Invoke, Hive UDF"}
-  S -->|"yes"| SP["UDFMappings / staticInvokeMap / backend generator"]
-  S -->|"no"| M["ExpressionMappings: class -> name (minus blacklist)"]
-  M -->|"missing"| F["GlutenNotSupportException -> fallback"]
-  M --> B["SparkPlanExecApi.extraExpressionConverter (backend-specific)"]
-  B --> T["transformExpression -> ExpressionTransformer tree"]
-  T --> SUB["doTransform -> Substrait ScalarFunction(funcId of 'name:sig')"]
-  SUB --> NV["Native: findVeloxFunction + toVeloxExpr + ExprSet compile (validation)"]
-  NV --> VF["Velox function registry (sparksql + aggregates + window + overwrites + UDF libs)"]
-```
+How one Catalyst expression becomes a native function call.
+
+1. `ExpressionConverter.replaceWithExpressionTransformer` receives the expression.
+2. Special cases first (UDF, `StaticInvoke`, `Invoke`, Hive UDF): `UDFMappings`, the static-invoke maps, or a backend generator handle them.
+3. Otherwise, look up `ExpressionMappings` (class → function name), minus anything in the blacklist. If it's missing, throw `GlutenNotSupportException`, and the operator falls back.
+4. The backend may adjust it in `SparkPlanExecApi.extraExpressionConverter`.
+5. `transformExpression` builds an `ExpressionTransformer` tree.
+6. `doTransform` emits a Substrait `ScalarFunction` whose function id points to `name:signature`.
+7. Native code resolves it (`findVeloxFunction`, `toVeloxExpr`) and compiles it with `ExprSet`. During planning, this same compile is the native validation.
+8. The function comes from the Velox registry: Spark SQL functions, aggregates, window functions, Gluten overwrites and UDF libraries.
 
 ---
 

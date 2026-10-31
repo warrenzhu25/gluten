@@ -57,8 +57,7 @@ Scala can't know every detail of what Velox supports (function signatures, type 
 | `ColumnarCollapseTransformStages` | Builds `WholeStageTransformer` + `InputIteratorTransformer` boundaries | [ColumnarCollapseTransformStages.scala](../../gluten-substrait/src/main/scala/org/apache/spark/sql/execution/ColumnarCollapseTransformStages.scala) |
 | `GlutenFallbackReporter` | Logs fallback reasons and posts them to the UI | [GlutenFallbackReporter.scala](../../gluten-substrait/src/main/scala/org/apache/spark/sql/execution/GlutenFallbackReporter.scala) |
 
-> [!NOTE]
-> Older Gluten versions also had an experimental cost-based planner ("RAS"). In v1.7.0 `GlutenInjector` only builds the **heuristic (legacy) applier**; the remaining `*-ras` approved-plan test resources are historical.
+> **Note:** Older Gluten versions also had an experimental cost-based planner ("RAS"). In v1.7.0 `GlutenInjector` only builds the **heuristic (legacy) applier**; the remaining `*-ras` approved-plan test resources are historical.
 
 ---
 
@@ -71,29 +70,28 @@ Spark's `ApplyColumnarRulesAndInsertTransitions` (part of `QueryExecution.prepar
 1. `preColumnarTransitions` only **wraps** the plan in a dummy node to remember whether the caller wants columnar or row output.
 2. `postColumnarTransitions` unwraps, **removes Spark's transitions** (`Transitions.insert` on the original plan), and runs Gluten's applier with `outputsColumnar`.
 
-```mermaid
-flowchart LR
-  A["Spark physical plan"] --> B["preColumnarTransitions: wrap in DummyRow/ColumnarOutputExec"]
-  B --> C["Spark inserts its own C2R/R2C"]
-  C --> D["postColumnarTransitions: unwrap + outputsColumnar"]
-  D --> E["HeuristicApplier.apply(plan, outputsColumnar)"]
-  E --> F["Gluten plan with transformers, transitions, WholeStageTransformers"]
-```
+How Gluten's rule sits inside Spark's own columnar planning.
+
+1. Start from Spark's physical plan.
+2. `preColumnarTransitions` wraps the plan (in `DummyRow`/`ColumnarOutputExec`) so Spark doesn't interfere.
+3. Spark inserts its own C2R/R2C transitions.
+4. `postColumnarTransitions` unwraps the plan and records whether the output must be columnar.
+5. `HeuristicApplier.apply(plan, outputsColumnar)` runs Gluten's rules.
+6. The result is a Gluten plan with transformers, transitions and `WholeStageTransformer`s.
 
 ### 3.2 The four phases
 
-```mermaid
-flowchart TB
-  P0["vanilla physical plan"] --> T["Phase transform"]
-  subgraph T["Phase: transform"]
-    T1["pre-transform rules"] --> T2["HeuristicTransform: rewrite, validate (AddFallbackTags), offload"] --> T3["post-transform rules incl. InsertTransitions"]
-  end
-  T --> F{"Phase: fallback (ExpandFallbackPolicy)"}
-  F -->|"keep Gluten plan"| PO["Phase: post (RemoveTopmostColumnarToRow, ColumnarCollapseTransformStages, GenerateTransformStageId, ...)"]
-  F -->|"FallbackNode(vanilla plan)"| FI
-  PO --> FI["Phase: final (GlutenFallbackReporter, RemoveFallbackTagRule, ...)"]
-  FI --> OUT["executed plan"]
-```
+The four phases of `HeuristicApplier`, in order.
+
+1. **Transform.** Start from the vanilla physical plan.
+   - pre-transform rules;
+   - `HeuristicTransform`: rewrite, validate (`AddFallbackTags`), offload;
+   - post-transform rules, including `InsertTransitions`.
+2. **Fallback.** `ExpandFallbackPolicy` decides whether to keep the Gluten plan, or to replace a stage or the whole query with the vanilla plan (`FallbackNode`).
+3. **Post.** Only if the Gluten plan was kept: `RemoveTopmostColumnarToRow`, `ColumnarCollapseTransformStages`, `GenerateTransformStageId`, and others.
+4. **Final.** Always: `GlutenFallbackReporter`, `RemoveFallbackTagRule`, and others.
+
+The output is the executed plan.
 
 Code (simplified from `HeuristicApplier.makeRule`):
 
@@ -224,8 +222,7 @@ override protected def doValidateInternal(): ValidationResult = {
 
 `validation = true` tells builders they are only validating (e.g. no subquery execution). `TransformerState.underValidationState` prevents `transform()` from materializing subqueries during validation.
 
-> [!TIP]
-> `spark.gluten.sql.validation.failFast` (default `true`) stops after the schema check fails; set `spark.gluten.sql.validation.printStackOnFailure=true` to log the stack trace of validation exceptions, and lower `spark.gluten.sql.validation.logLevel` (default `WARN`) as needed.
+> **Tip:** `spark.gluten.sql.validation.failFast` (default `true`) stops after the schema check fails; set `spark.gluten.sql.validation.printStackOnFailure=true` to log the stack trace of validation exceptions, and lower `spark.gluten.sql.validation.logLevel` (default `WARN`) as needed.
 
 ### 5.3 Rewrites and validation interplay
 
@@ -271,8 +268,7 @@ Offload rules check `FallbackTags.nonEmpty(p)` first and return the node unchang
 
 Details of each operator: [12 · Operators](12-operators-join-agg-window-sort.md).
 
-> [!NOTE]
-> With `spark.gluten.sql.columnar.forceShuffledHashJoin=true` (default), the Velox backend prefers shuffled hash join over sort-merge join (via `RewriteJoin`), because Velox's hash join is typically faster and avoids sorts.
+> **Note:** With `spark.gluten.sql.columnar.forceShuffledHashJoin=true` (default), the Velox backend prefers shuffled hash join over sort-merge join (via `RewriteJoin`), because Velox's hash join is typically faster and avoids sorts.
 
 ---
 

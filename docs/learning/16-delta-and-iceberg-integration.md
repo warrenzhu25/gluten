@@ -76,26 +76,22 @@ So each format needs:
 
 ## 3. Architecture
 
-```mermaid
-flowchart TD
-  subgraph JVM["Driver (JVM)"]
-    A["Spark planner + Delta/Iceberg extensions"] --> B["FileSourceScanExec (Delta) / BatchScanExec (Iceberg)"]
-    B --> C{"Component offload rules"}
-    C -->|Delta| D["DeltaScanTransformer"]
-    C -->|Iceberg| E["IcebergScanTransformer"]
-    D --> F["DeltaPostTransformRules: strip DV filter, column mapping"]
-    D --> G["Splits: DeltaLocalFilesNode + serialized DV bitmap"]
-    E --> H["Splits: IcebergLocalFilesNode + delete files"]
-  end
-  subgraph Native["Executor (Velox)"]
-    G --> I["parseDeltaSplitInfo -> DeltaSplitInfo"]
-    H --> J["parseIcebergSplitInfo -> IcebergSplitInfo"]
-    I --> K["HiveDeltaSplit on Delta connector"]
-    J --> L["HiveIcebergSplit on Hive connector"]
-    K --> M["DeltaSplitReader: Parquet read + DV mask"]
-    L --> N["IcebergSplitReader: Parquet/ORC read + position deletes"]
-  end
-```
+How Delta and Iceberg scans flow from planning to native reading.
+
+**Driver (JVM):**
+
+1. Spark plans the query with the Delta/Iceberg extensions. The result is a `FileSourceScanExec` (Delta) or a `BatchScanExec` (Iceberg).
+2. The component offload rules replace them:
+   - Delta → `DeltaScanTransformer`, followed by `DeltaPostTransformRules` (strip the DV filter, handle column mapping);
+   - Iceberg → `IcebergScanTransformer`.
+3. Splits are built:
+   - Delta: `DeltaLocalFilesNode` with the serialized deletion-vector bitmap;
+   - Iceberg: `IcebergLocalFilesNode` with the delete files.
+
+**Executor (Velox):**
+
+1. Delta: `parseDeltaSplitInfo` → `DeltaSplitInfo` → `HiveDeltaSplit` on the Delta connector. `DeltaSplitReader` reads Parquet and applies the DV mask.
+2. Iceberg: `parseIcebergSplitInfo` → `IcebergSplitInfo` → `HiveIcebergSplit` on the Hive connector. `IcebergSplitReader` reads Parquet/ORC and applies position deletes.
 
 Component wiring (both are legacy-transform rules running in the heuristic planner, see [02 · Planning](02-planning-offload-validation-fallback.md)):
 
@@ -148,23 +144,17 @@ These transformers drop the wrapper from the native expression and keep the metr
 
 ### 4.3 How a deletion vector reaches Velox
 
-```mermaid
-sequenceDiagram
-  participant D as Delta (PreprocessTableWithDVsStrategy)
-  participant P as PartitionedFile metadata
-  participant S as DeltaDeletionVectorScanInfo (driver)
-  participant FS as Table storage
-  participant N as Velox DeltaSplitReader
-  D->>P: put FILE_ROW_INDEX_FILTER_ID_ENCODED (base64 DV descriptor) + FILE_ROW_INDEX_FILTER_TYPE
-  S->>P: read otherConstantMetadataColumnValues
-  S->>S: DeletionVectorDescriptor.deserializeFromBase64
-  S->>S: resolveTablePath (walk up partition dirs until _delta_log exists)
-  S->>FS: StoredBitmap.create(desc, tablePath).load(HadoopFileSystemDVStore)
-  S->>S: serializeAsByteArray(RoaringBitmapArrayFormat.Portable)
-  S->>N: Substrait ReadRel FileOrFiles.delta {filter type, cardinality, bytes}
-  N->>N: parseDeltaSplitInfo -> DeltaDeletionVectorDescriptor::serialized
-  N->>N: read Parquet rows, drop/keep by file-global row index
-```
+How a deletion vector travels from Delta's metadata to Velox.
+
+1. During planning, Delta's `PreprocessTableWithDVsStrategy` stores two values in each file's metadata: `FILE_ROW_INDEX_FILTER_ID_ENCODED` (a base64 DV descriptor) and `FILE_ROW_INDEX_FILTER_TYPE`.
+2. On the driver, `DeltaDeletionVectorScanInfo` reads those values (`otherConstantMetadataColumnValues`).
+3. It decodes the descriptor (`DeletionVectorDescriptor.deserializeFromBase64`).
+4. It finds the table root (`resolveTablePath`), walking up the partition directories until `_delta_log` exists.
+5. It loads the bitmap from storage (`StoredBitmap.create(desc, tablePath).load(HadoopFileSystemDVStore)`).
+6. It serializes it as a portable Roaring bitmap (`RoaringBitmapArrayFormat.Portable`).
+7. The bytes go into the Substrait `ReadRel` (`FileOrFiles.delta`: filter type, cardinality, bytes).
+8. On the executor, `parseDeltaSplitInfo` builds a `DeltaDeletionVectorDescriptor`.
+9. `DeltaSplitReader` reads Parquet rows and drops or keeps each row by its file-global row index.
 
 Things to notice:
 - **DV bitmaps are loaded on the driver** while splits are generated, and they travel **inline in the Substrait plan** for each task.
@@ -228,22 +218,15 @@ With `spark.gluten.sql.columnar.backend.velox.delta.enableNativeWrite=true`, `Of
 
 The wrapper runs the original command inside `TransactionExecutionObserver.withObserver(UseColumnarDeltaTransactionLog)`. That observer **swaps the `OptimisticTransaction` for a `GlutenOptimisticTransaction`** ([DeltaWriteOperators.scala](../../backends-velox/src-delta33/main/scala/org/apache/spark/sql/execution/datasources/v2/DeltaWriteOperators.scala)). Delta's own command logic (conflict detection, commit, log) is unchanged. Only `writeFiles` is replaced:
 
-```mermaid
-flowchart TD
-  A["GlutenOptimisticTransaction.writeFiles"] --> B["normalizeData, constraints, stats schema"]
-  B --> C{"constraints empty?"}
-  C -->|yes| D["plan as is (no invariant checker, avoids extra transitions)"]
-  C -->|no| E["DeltaInvariantCheckerExec(plan)"]
-  D --> F["toVeloxPlan: Transitions.toBatchPlan(VeloxBatchType) or AQE supportsColumnar"]
-  E --> F
-  F --> G{"optimized write and not OPTIMIZE?"}
-  G -->|yes| H["GlutenDeltaOptimizedWriterExec (columnar shuffle); fallback DeltaOptimizedWriterExec"]
-  G -->|no| I["Velox plan"]
-  H --> J["GlutenDeltaFileFormatWriter.write (GlutenDeltaParquetFileFormat)"]
-  I --> J
-  J --> K["Stats trackers wrapped: GlutenDeltaJobStatsTracker / RowCounting / Fallback"]
-  K --> L["AddFile actions -> Delta commit"]
-```
+What `GlutenOptimisticTransaction.writeFiles` does.
+
+1. Normalize the data and collect constraints and the stats schema.
+2. If there are constraints, wrap the plan in `DeltaInvariantCheckerExec`. If there are none, skip it; this avoids extra transitions.
+3. Turn the plan into a Velox plan: `Transitions.toBatchPlan(VeloxBatchType)`, or set `supportsColumnar` on the AQE plan.
+4. If optimized writes are on and this isn't `OPTIMIZE`, add `GlutenDeltaOptimizedWriterExec` (columnar shuffle). If that can't be created, fall back to `DeltaOptimizedWriterExec`.
+5. Write with `GlutenDeltaFileFormatWriter.write`, using `GlutenDeltaParquetFileFormat`.
+6. Wrap the stats trackers: `GlutenDeltaJobStatsTracker`, the row-counting tracker, or the fallback tracker.
+7. Return the `AddFile` actions, which Delta commits.
 
 Details:
 - Writer options are reduced to `maxRecordsPerFile`, `compression` and `writePartitionColumns`. The last one is true when IcebergCompat (UniForm) is enabled, because Iceberg requires partition columns inside the data files.
@@ -313,8 +296,7 @@ Iceberg's Spark functions (`bucket`, `truncate`, `years`, `months`, `days`, `hou
 | `supportAppendDataExec` / `supportReplaceDataExec` / `supportOverwriteByExpression` / `supportOverwritePartitionsDynamic` / `supportWriteToDataSourceV2` | = `enableEnhancedFeatures()` | [VeloxBackend.scala](../../backends-velox/src/main/scala/org/apache/gluten/backendsapi/velox/VeloxBackend.scala) |
 | `Validators.FallbackByBackendSettings` fails these execs if unsupported | — | [Validators.scala](../../gluten-substrait/src/main/scala/org/apache/gluten/extension/columnar/validator/Validators.scala) |
 
-> [!IMPORTANT]
-> The official Velox bundle is built without enhanced features, so there `isEnhancedFeaturesEnabled` returns false and **all five Iceberg write execs fall back**. That matches "Writing: Fallback" in `VeloxIceberg.md`. The offload code described below runs only on enhanced builds (the IBM Velox fork features).
+> **Important:** The official Velox bundle is built without enhanced features, so there `isEnhancedFeaturesEnabled` returns false and **all five Iceberg write execs fall back**. That matches "Writing: Fallback" in `VeloxIceberg.md`. The offload code described below runs only on enhanced builds (the IBM Velox fork features).
 
 When `supportAppendDataExec` is true, `VeloxRuleApi` also injects the shim's `RewriteCreateTableAsSelect` planner strategy, so CTAS/RTAS turn into append-style writes that can be offloaded.
 
@@ -343,26 +325,18 @@ When `supportAppendDataExec` is true, `VeloxRuleApi` also injects the shim's `Re
 
 ### 7.3 Execution
 
-```mermaid
-sequenceDiagram
-  participant E as AbstractIcebergWriteExec (driver)
-  participant F as IcebergDataWriteFactory
-  participant W as IcebergColumnarBatchDataWriter (task)
-  participant J as IcebergWriteJniWrapper
-  participant V as Velox IcebergWriter / IcebergDataSink
-  participant C as Iceberg SparkWrite (driver commit)
-  E->>F: write schema, Parquet, data dir, codec, PartitionSpec (proto), sort order, nested field ids (proto), page size, target file size, queryId
-  F->>W: createWriter(partitionId, taskId)
-  W->>J: init(cSchema, format, dir, codec, spec, fields, confs)
-  loop each ColumnarBatch
-    W->>J: write(handle, batch)
-    J->>V: IcebergDataSink.appendData
-  end
-  W->>J: commit(handle) -> String[] DataFile JSON
-  W->>W: parse DataFileJson + PartitionDataJson + MetricsWrapper -> Iceberg DataFile
-  W-->>C: WriterCommitMessage(DataFiles)
-  C->>C: Iceberg commit (append/overwrite/rowDelta)
-```
+A native Iceberg write, step by step.
+
+1. On the driver, `AbstractIcebergWriteExec` builds an `IcebergDataWriteFactory` with:
+   - write schema, Parquet format, data directory, codec;
+   - `PartitionSpec` and nested field ids (as protobuf), sort order;
+   - page size, target file size and query id.
+2. In each task, the factory creates an `IcebergColumnarBatchDataWriter`.
+3. The writer calls `IcebergWriteJniWrapper.init(...)` with the schema, format, directory, codec, spec, fields and configs.
+4. For each `ColumnarBatch`, it calls `write(handle, batch)`. Velox's `IcebergWriter` appends the batch to an `IcebergDataSink`.
+5. At the end, it calls `commit(handle)` and gets back an array of DataFile JSON strings.
+6. It parses them (`DataFileJson`, `PartitionDataJson`, `MetricsWrapper`) into Iceberg `DataFile`s and returns them as a `WriterCommitMessage`.
+7. On the driver, Iceberg's own `SparkWrite` commits them (append, overwrite or row delta).
 
 - Velox computes partition values for identity and transform partitions. Iceberg partition specs and nested field ids are passed as protobuf (`IcebergPartitionSpec.proto`, `IcebergNestedField.proto`) so that Velox can write correct field ids into Parquet.
 - `write.parquet.page-size-bytes` and the target file size are forwarded unless the user overrides them in the session.

@@ -53,24 +53,22 @@ It deliberately **does not** replace Spark's commit protocol, so correctness pro
 
 ## 3. Architecture
 
-```mermaid
-flowchart TB
-  subgraph Driver
-    CMD["InsertIntoHadoopFsRelationCommand (DataWritingCommandExec)"] --> WF["WriteFilesExec (Spark 3.4+)"]
-    WF --> OFF["OffloadOthers -> WriteFilesExecTransformer (validate supportWriteFilesExec)"]
-    OFF --> CW["VeloxColumnarWriteFilesExec (columnar write node)"]
-    CW --> JOB["Spark FileCommitProtocol: setupJob ... commitJob"]
-  end
-  subgraph Task["Executor task"]
-    RDD["VeloxColumnarWriteFilesRDD.compute"] --> CP["SparkWriteFilesCommitProtocol.setupTask, newTaskAttemptTempPath, getFilename"]
-    CP --> INJ["injectWriteFilesTempPath(path, fileName) (JNI)"]
-    INJ --> NP["Native stage: ... -> TableWriteNode (Velox Parquet writer)"]
-    NP --> META["One result batch: per-file metadata (JSON fragments)"]
-    META --> RES["WriteTaskResult (files, partitions, stats) + commitTask"]
-  end
-  CW --> RDD
-  RES --> JOB
-```
+How a native write fits into Spark's write path.
+
+**Driver:**
+
+1. `InsertIntoHadoopFsRelationCommand` (under `DataWritingCommandExec`) plans a `WriteFilesExec` (Spark 3.4+).
+2. `OffloadOthers` replaces it with `WriteFilesExecTransformer` if `supportWriteFilesExec` passes.
+3. It is executed by `VeloxColumnarWriteFilesExec`, a columnar write node.
+4. Spark's `FileCommitProtocol` still runs `setupJob` … `commitJob`.
+
+**Each executor task:**
+
+1. `VeloxColumnarWriteFilesRDD.compute` asks `SparkWriteFilesCommitProtocol` for `setupTask`, the temp path and the file name.
+2. It passes them to native code with `injectWriteFilesTempPath(path, fileName)` (JNI).
+3. The native stage ends in a Velox `TableWriteNode`, which writes Parquet.
+4. Native code returns one result batch with per-file metadata (JSON fragments).
+5. The JVM builds Spark's `WriteTaskResult` (files, partitions, stats) and calls `commitTask`. The driver's `commitJob` then finishes the job.
 
 ---
 

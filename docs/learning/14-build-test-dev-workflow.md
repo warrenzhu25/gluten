@@ -51,15 +51,16 @@
 
 ## 3. Building
 
-```mermaid
-flowchart LR
-  A["ep/build-velox: get-velox.sh (pinned Velox fork/branch)"] --> B["builddeps-veloxbe.sh: build Velox + deps (vcpkg optional)"]
-  B --> C["cpp/ CMake: libgluten.so + libvelox.so"]
-  C --> D["./build/mvn -Pbackends-velox -Pspark-X.Y: Scala/Java modules"]
-  D --> E["package/: gluten-velox-bundle jar (jars + native libs)"]
-  E --> F["spark-shell / spark-submit --jars bundle"]
-  C -.->|"incremental rebuild: build_gluten_cpp"| D
-```
+The build pipeline, in order.
+
+1. `ep/build-velox/get-velox.sh` fetches the pinned Velox fork and branch.
+2. `builddeps-veloxbe.sh` builds Velox and its dependencies (vcpkg optional).
+3. CMake under `cpp/` builds `libgluten.so` and `libvelox.so`.
+4. `./build/mvn -Pbackends-velox -Pspark-X.Y` builds the Scala/Java modules.
+5. `package/` produces the `gluten-velox-bundle` jar, containing the jars and the native libraries.
+6. You run it with `spark-shell` / `spark-submit --jars <bundle>`.
+
+For incremental work after a C++ change, run `builddeps-veloxbe.sh build_gluten_cpp` (step 3 only), then step 4 again.
 
 The order matters. Maven packages the native libraries built in the step before it. If you change C++ and skip the native rebuild, the jar builds fine but fails at runtime (see [AGENTS.md](../../AGENTS.md)).
 
@@ -109,8 +110,7 @@ export PROMPT_ALWAYS_RESPOND=y          # auto-confirm system package / vcpkg pr
 | Scala/Java only | `./build/mvn package -Pbackends-velox -Pspark-3.5 -DskipTests` (native libs reused) |
 | `gluten-core`/`gluten-substrait` with JNI/Substrait changes | Rebuild **native too** — Maven succeeds but JNI/Substrait mismatches fail at runtime (AGENTS.md pitfall) |
 
-> [!TIP]
-> After a clean checkout run `./build/mvn install ... -DskipTests` once, because `gluten-ut` and `backends-velox` resolve sibling modules from the local Maven repo.
+> **Tip:** After a clean checkout run `./build/mvn install ... -DskipTests` once, because `gluten-ut` and `backends-velox` resolve sibling modules from the local Maven repo.
 
 ### 3.4 Maven profiles
 

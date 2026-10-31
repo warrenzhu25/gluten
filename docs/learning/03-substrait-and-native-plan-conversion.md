@@ -59,24 +59,21 @@ Gluten modifies Substrait where it lacks Spark features (window functions, expan
 
 ## 3. Architecture
 
-```mermaid
-flowchart LR
-  subgraph JVM["Driver JVM"]
-    WST["WholeStageTransformer.doWholeStageTransform"] --> TR["child.transform(SubstraitContext)"]
-    TR --> DT["each Transformer.doTransform builds RelNode"]
-    DT --> PB["PlanBuilder.makePlan: extensions + root"]
-    PB --> BYTES["Plan protobuf bytes"]
-    SCAN["Scan transformers: getSplitInfos"] --> SI["SplitInfo protobuf per partition"]
-  end
-  BYTES --> PART["GlutenPartition (plan + splits)"]
-  SI --> PART
-  subgraph CPP["Executor native"]
-    PARSE["Runtime.parsePlan / parseSplitInfo"] --> CONV["SubstraitToVeloxPlanConverter.toVeloxPlan"]
-    CONV --> EXPR["SubstraitToVeloxExpr: expressions"]
-    CONV --> VP["Velox PlanNode tree"]
-  end
-  PART -->|"JNI createKernelWithIterator"| PARSE
-```
+Where the plan is built and where it is consumed.
+
+**Driver (JVM):**
+
+1. `WholeStageTransformer.doWholeStageTransform` calls `child.transform(SubstraitContext)`.
+2. Each transformer's `doTransform` builds its `RelNode`, bottom up.
+3. `PlanBuilder.makePlan` adds function extensions and the root, producing plan protobuf bytes.
+4. Separately, scan transformers call `getSplitInfos`, producing a `SplitInfo` protobuf for each partition.
+5. Plan bytes and split infos are packed into a `GlutenPartition`.
+
+**Executor (native):**
+
+1. JNI `createKernelWithIterator` hands both over.
+2. The runtime parses the plan and split infos.
+3. `SubstraitToVeloxPlanConverter.toVeloxPlan` builds the Velox `PlanNode` tree, using `SubstraitToVeloxExpr` for expressions.
 
 ---
 
@@ -343,8 +340,7 @@ df.queryExecution.executedPlan.collect { case w: WholeStageTransformer => w }
   .foreach(w => println(s"== stage ${w.stageId}\n${w.substraitPlanJson}"))
 ```
 
-> [!NOTE]
-> With AQE, call this after the query ran (or on `df.queryExecution.executedPlan` after an action), since the final plan with transformers only exists after adaptive planning.
+> **Note:** With AQE, call this after the query ran (or on `df.queryExecution.executedPlan` after an action), since the final plan with transformers only exists after adaptive planning.
 
 ---
 

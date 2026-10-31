@@ -55,26 +55,19 @@
 
 ## 3. Architecture
 
-```mermaid
-flowchart TB
-  subgraph JVM["Executor JVM - Spark task thread"]
-    RDD["GlutenWholeStageColumnarRDD.compute(partition)"] --> GFS["VeloxIteratorApi.genFirstStageIterator"]
-    GFS --> NPE["NativePlanEvaluator.create -> Runtimes.contextInstance"]
-    NPE --> CK["createKernelWithBatchIterator(plan, splits, inIters, spillDir)"]
-    CK --> OUT["ColumnarBatchOutIterator wrapped by Iterators"]
-    UP["Upstream RDD iterators (shuffle read, broadcast, fallback op)"] --> IN["ColumnarBatchInIterator"]
-  end
-  subgraph CPP["Native (same thread)"]
-    J["JNI nativeCreateKernelWithIterator"] --> VR["VeloxRuntime: parsePlan, parseSplitInfo"]
-    VR --> RI["createResultIterator: SubstraitToVeloxPlan + WholeStageResultIterator"]
-    RI --> TC["Velox TaskCursor (serial, 1 driver)"]
-    TC --> OPS["Operators: TableScan, Filter, Project, Agg, Join ..."]
-    OPS --> VS["ValueStream connector pulls JniColumnarBatchIterator"]
-  end
-  CK --> J
-  VS -->|"JNI callback hasNext/next -> handle"| IN
-  OUT -->|"nativeHasNext / nativeNext"| TC
-```
+Everything below runs on the Spark task thread. Data flows in two directions.
+
+**Creating the native iterator (JVM → C++):**
+
+1. `GlutenWholeStageColumnarRDD.compute(partition)` calls `VeloxIteratorApi.genFirstStageIterator`.
+2. That creates a `NativePlanEvaluator` (via `Runtimes.contextInstance`) and calls `createKernelWithBatchIterator(plan, splits, inIters, spillDir)`.
+3. JNI `nativeCreateKernelWithIterator` reaches C++. `VeloxRuntime` parses the plan and splits.
+4. `createResultIterator` builds the Velox plan and a `WholeStageResultIterator` around a Velox `TaskCursor` (serial, one driver).
+5. The JVM gets back a `ColumnarBatchOutIterator`.
+
+**Output (C++ → JVM):** the JVM pulls results with `nativeHasNext` / `nativeNext`. Each call drives the Velox operators (TableScan, Filter, Project, Agg, Join, …) one step.
+
+**Input (JVM → C++):** when a stage reads from shuffle, broadcast or a fallen-back operator, its Velox ValueStream connector calls back into Java (`ColumnarBatchInIterator`) to get the next batch handle.
 
 ---
 
@@ -237,35 +230,19 @@ On iterator completion (`recycleIterator`), `IteratorMetricsJniWrapper.fetch(res
 
 ## 5. End-to-end worked example: one task of a scan + aggregate stage
 
-```mermaid
-sequenceDiagram
-  participant S as Spark Executor (task thread)
-  participant R as GlutenWholeStageColumnarRDD
-  participant I as VeloxIteratorApi
-  participant E as NativePlanEvaluator
-  participant TR as TaskResources
-  participant J as JniWrapper.cc
-  participant V as VeloxRuntime / WholeStageResultIterator
-  participant D as Downstream (shuffle writer or C2R)
-  S->>R: compute(partition 7)
-  R->>I: genFirstStageIterator(plan, splits)
-  I->>E: create(velox)
-  E->>TR: Runtimes.contextInstance -> new Runtime (memory manager, native runtime)
-  I->>E: createKernelWithBatchIterator
-  E->>J: nativeCreateKernelWithIterator
-  J->>V: parsePlan, parseSplitInfo, createResultIterator
-  V-->>J: iterator handle
-  J-->>E: handle -> ColumnarBatchOutIterator (+ spiller registered)
-  loop until end
-    D->>J: nativeHasNext / nativeNext
-    J->>V: next() -> cursor.moveNext()
-    V-->>J: VeloxColumnarBatch -> saveObject
-    J-->>D: batch handle (ColumnarBatch)
-    D->>D: consume, then batch.close()
-  end
-  D->>J: close: fetch metrics, nativeClose
-  S->>TR: task end -> release Runtime, memory manager
-```
+One task of a scan + aggregate stage (partition 7), step by step.
+
+1. The Spark executor calls `compute(partition 7)` on `GlutenWholeStageColumnarRDD`.
+2. The RDD calls `VeloxIteratorApi.genFirstStageIterator(plan, splits)`.
+3. `NativePlanEvaluator.create(velox)` asks `TaskResources` for this task's `Runtime`, creating it (memory manager + native runtime) on first use.
+4. `createKernelWithBatchIterator` → JNI `nativeCreateKernelWithIterator` → C++ parses the plan and splits and creates the result iterator.
+5. C++ returns an iterator handle. The JVM wraps it in a `ColumnarBatchOutIterator` and registers a spiller.
+6. Until the input is exhausted:
+   - the downstream consumer (shuffle writer or C2R) calls `nativeHasNext` / `nativeNext`;
+   - C++ calls `cursor.moveNext()`, stores the resulting `VeloxColumnarBatch`, and returns its handle;
+   - the consumer uses the batch, then calls `batch.close()`.
+7. On close, the JVM fetches metrics and calls `nativeClose`.
+8. When the task ends, `TaskResources` releases the `Runtime` and its memory manager.
 
 What you can observe:
 - Spark UI → SQL tab: per-operator native metrics on the transformer nodes (e.g. `time of scan`, `peak memory bytes`, `number of output rows`).
@@ -296,8 +273,7 @@ What you can observe:
 | `spark.gluten.sql.benchmark_task.*`, `spark.gluten.saveDir` | off | Dump plan/splits/input of selected tasks (see [03](03-substrait-and-native-plan-conversion.md)) |
 | `spark.gluten.sql.columnar.backend.velox.enableUserExceptionStacktrace` / `enableSystemExceptionStacktrace` | `true` / `true` | Include stack traces in Velox exceptions |
 
-> [!TIP]
-> Velox-related keys are prefixed `spark.gluten.sql.columnar.backend.velox.` (see [docs/velox-configuration.md](../../docs/velox-configuration.md) and `cpp/velox/config/VeloxConfig.h`). Verify exact names there before use.
+> **Tip:** Velox-related keys are prefixed `spark.gluten.sql.columnar.backend.velox.` (see [docs/velox-configuration.md](../../docs/velox-configuration.md) and `cpp/velox/config/VeloxConfig.h`). Verify exact names there before use.
 
 ---
 

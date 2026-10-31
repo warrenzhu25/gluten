@@ -57,20 +57,14 @@ The key design point: Gluten does **not** run its own memory pressure detection;
 
 ## 3. Architecture
 
-```mermaid
-flowchart TB
-  SPK["Spark TaskMemoryManager: needs memory"] --> TMC["TreeMemoryConsumer.spill(size)"]
-  TMC --> ST["TreeMemoryTargets.spillTree(root, size)"]
-  ST --> PH1["Phase SHRINK (largest child first)"]
-  PH1 --> SH["NativeMemoryManager spiller: JNI shrink -> VeloxMemoryManager::shrink -> arbitrator.shrinkCapacity(pool, 0)"]
-  ST --> PH2["Phase SPILL (if still short)"]
-  PH2 --> PS["Plan spiller: ColumnarBatchOutIterator.spill -> spillFixedSize"]
-  PH2 --> SS["Shuffle spiller: shuffleWriter.reclaim(size)"]
-  PS --> ARB["ListenableArbitrator.shrinkCapacity(bytes) -> root pool reclaim"]
-  ARB --> OPS["Velox operator reclaimers: HashAggregation, HashBuild, OrderBy, Window, RowNumber, TopNRowNumber ..."]
-  OPS --> DISK["Spill files in Spark local dirs (gluten-spill/...)"]
-  SS --> DISK2["Shuffle spill files"]
-```
+What happens when Spark needs memory back.
+
+1. Spark's `TaskMemoryManager` needs memory and calls `TreeMemoryConsumer.spill(size)`.
+2. That calls `TreeMemoryTargets.spillTree(root, size)`, which works in two phases. In each phase, the largest child goes first.
+3. **Phase SHRINK.** The `NativeMemoryManager` spiller calls JNI shrink → `VeloxMemoryManager::shrink` → `arbitrator.shrinkCapacity(pool, 0)`. This only returns reserved-but-unused memory; there is no disk I/O.
+4. **Phase SPILL** (only if still short):
+   - Plan spiller: `ColumnarBatchOutIterator.spill` → `spillFixedSize` → `ListenableArbitrator.shrinkCapacity(bytes)` → root pool reclaim → Velox operator reclaimers (HashAggregation, HashBuild, OrderBy, Window, RowNumber, TopNRowNumber, …). These write spill files under Spark local dirs (`gluten-spill/...`).
+   - Shuffle spiller: `shuffleWriter.reclaim(size)` writes shuffle spill files.
 
 ---
 
@@ -183,28 +177,16 @@ The native writer frees memory by evicting cached partition payloads / partition
 
 ### 4.6 Re-entrant spill during allocation
 
-```mermaid
-sequenceDiagram
-  participant Op as Velox HashAggregation (task thread)
-  participant Arb as ListenableArbitrator.growCapacity
-  participant L as ReservationListener (JNI)
-  participant SP as Spark TaskMemoryManager
-  participant G as TreeMemoryConsumer.spill
-  participant WS as spillFixedSize
-  Op->>Arb: need +16MB
-  Arb->>L: allocationChanged(+16MB)
-  L->>SP: acquireExecutionMemory(16MB)
-  SP->>G: spill(16MB) (pool exhausted)
-  G->>WS: SHRINK then SPILL
-  WS->>Arb: shrinkCapacity -> pool.reclaim
-  Note over Arb: ScopedMemoryArbitrationContext allows reclaim of this task's operators
-  Arb-->>WS: freed bytes (spilled to disk)
-  WS-->>G: total reclaimed
-  G-->>SP: freed
-  SP-->>L: granted 16MB
-  L-->>Arb: ok
-  Arb-->>Op: pool grown, continue
-```
+A re-entrant spill: an operator needs memory while it is running.
+
+1. Velox `HashAggregation` (on the task thread) needs another 16MB and asks `ListenableArbitrator.growCapacity`.
+2. The arbitrator tells the JNI `ReservationListener`: allocation changed by +16MB.
+3. The listener calls Spark `acquireExecutionMemory(16MB)`.
+4. Spark's pool is exhausted, so it calls `TreeMemoryConsumer.spill(16MB)`.
+5. Gluten runs SHRINK, then SPILL, through `spillFixedSize`.
+6. `spillFixedSize` calls `shrinkCapacity` → `pool.reclaim`. A `ScopedMemoryArbitrationContext` allows reclaiming this task's own operators.
+7. Freed bytes (spilled to disk) flow back up: arbitrator → `spillFixedSize` → Gluten → Spark.
+8. Spark grants the 16MB to the listener, the arbitrator grows the pool, and the aggregation continues.
 
 `ScopedMemoryArbitrationContext` (set in `growCapacity`/`shrinkCapacity`) lets Velox perform reclaim while the requesting operator is mid-allocation (allowing temporary over-use per Velox's rules). If reclaim can't free enough, `RetryOnOom` spills the whole task tree once more, then `ThrowOnOom` fails the task ([06](06-memory-management.md)).
 
@@ -296,8 +278,7 @@ Velox spill settings are passed to the Velox `QueryConfig` per task (defaults be
 | `spark.unsafe.sorter.spill.reader.buffer.size` | `1MB` (native fallback) | Spill read buffer |
 | `spark.shuffle.spill.diskWriteBufferSize` | `1MB` (native fallback) | Spill write buffer |
 
-> [!NOTE]
-> The JVM config name for max spill run rows (`maxSpillRunRows`) differs in case from the native constant (`MaxSpillRunRows`). If tuning it, verify which key reaches native code in your build (e.g. with `spark.gluten.sql.debug=true`, which logs the native session config).
+> **Note:** The JVM config name for max spill run rows (`maxSpillRunRows`) differs in case from the native constant (`MaxSpillRunRows`). If tuning it, verify which key reaches native code in your build (e.g. with `spark.gluten.sql.debug=true`, which logs the native session config).
 
 ---
 

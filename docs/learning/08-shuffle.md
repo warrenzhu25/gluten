@@ -65,23 +65,22 @@ It reuses Spark's shuffle *infrastructure* (map status, block resolver, fetch) i
 
 ## 3. Architecture
 
-```mermaid
-flowchart LR
-  subgraph Map["Map task (executor)"]
-    NS["Native stage output (Velox batches)"] --> PJ["ProjectExecTransformer: hash_partition_key = murmur3(keys)"]
-    PJ --> RZ["VeloxResizeBatches (coalesce)"]
-    RZ --> CSW["ColumnarShuffleWriter (JVM)"]
-    CSW -->|"JNI write(batch handle)"| W["Native writer: Hash / Sort / RssSort"]
-    W --> PW["LocalPartitionWriter: cache, merge, compress, spill"]
-    PW --> F["data file + index (IndexShuffleBlockResolver)"]
-  end
-  subgraph Reduce["Reduce task"]
-    FETCH["Spark ShuffleBlockFetcherIterator"] --> SER["ColumnarBatchSerializer.deserializeStream"]
-    SER -->|"JNI"| RD["VeloxShuffleReader: decompress + deserialize + merge"]
-    RD --> OUT["Velox batches -> InputIteratorTransformer of next native stage"]
-  end
-  F --> FETCH
-```
+The life of shuffle data.
+
+**Map task:**
+
+1. A native stage outputs Velox batches.
+2. A `ProjectExecTransformer` adds `hash_partition_key = murmur3(keys)`.
+3. `VeloxResizeBatches` merges small batches.
+4. `ColumnarShuffleWriter` (JVM) passes each batch handle over JNI to the native writer (hash, sort or RSS sort).
+5. `LocalPartitionWriter` caches, merges, compresses and spills partition data.
+6. The output is a data file plus an index file (`IndexShuffleBlockResolver`), the same layout Spark uses.
+
+**Reduce task:**
+
+1. Spark's `ShuffleBlockFetcherIterator` fetches the blocks.
+2. `ColumnarBatchSerializer.deserializeStream` hands them over JNI to `VeloxShuffleReader`, which decompresses, deserializes and merges them.
+3. The resulting Velox batches feed the next native stage through `InputIteratorTransformer`.
 
 ---
 

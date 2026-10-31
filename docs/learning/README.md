@@ -3,9 +3,19 @@
 **Code base:** public Apache Gluten **v1.7.0** (tag `v1.7.0`).
 All class names, file paths, config keys and defaults were checked against that code. Code links point into the repository source tree.
 
+## Reading on Kindle or other e-readers
+
+There are no rendered diagrams. Every diagram is written out as plain text, usually as numbered steps, so the docs read the same on any screen. To make an e-book from the merged file:
+
+```bash
+pandoc gluten-learning-complete.md -o gluten-learning.epub --toc --metadata title="Learning Apache Gluten"
+```
+
+Then send the `.epub` to your Kindle with Send to Kindle.
+
 ## How each doc is organized
 
-TL;DR → why the component exists → key concepts → architecture diagram → detailed walkthrough with code → end-to-end worked example → config reference (verified defaults) → pitfalls and FAQ → code map → related docs.
+TL;DR → why the component exists → key concepts → architecture (explained as numbered steps) → detailed walkthrough with code → end-to-end worked example → config reference (verified defaults) → pitfalls and FAQ → code map → related docs.
 
 ## Docs
 

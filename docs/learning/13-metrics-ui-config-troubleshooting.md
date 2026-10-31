@@ -30,22 +30,14 @@
 
 ### 1.1 How native metrics reach the UI
 
-```mermaid
-sequenceDiagram
-  participant D as Driver (planning)
-  participant W as WholeStageTransformer
-  participant T as Task (executor)
-  participant N as Native (WholeStageResultIterator)
-  participant UI as Spark SQL UI
-  D->>W: doWholeStageTransform: SubstraitContext records operatorId -> relIds, JoinParams, AggParams
-  W->>T: RDD with metricsUpdatingFunction(child, relMap, joinParams, aggParams)
-  T->>N: run task
-  N->>N: collectMetrics(): per Velox plan node stats (ordered node ids)
-  T->>N: on iterator completion: IteratorMetricsJniWrapper.fetch -> nativeFetchMetrics
-  N-->>T: arrays per metric (inputRows, outputRows, cpu, wall, peakMemory, spill*, scan IO ...)
-  T->>T: MetricsUtil walks MetricsUpdaterTree, assigns OperatorMetrics to each transformer's MetricsUpdater
-  T-->>UI: SQLMetric accumulators updated
-```
+How native metrics reach the Spark UI.
+
+1. **Planning (driver).** During `doWholeStageTransform`, `SubstraitContext` records which Substrait rels belong to which operator, plus join and aggregation parameters.
+2. The RDD carries a `metricsUpdatingFunction` built from that information.
+3. **Execution (task).** Velox collects per-node stats while the task runs (`collectMetrics`, ordered by node id).
+4. When the iterator finishes, the JVM calls `IteratorMetricsJniWrapper.fetch` → `nativeFetchMetrics`. Native code returns one array per metric: input/output rows, CPU, wall time, peak memory, spill, scan IO, ….
+5. `MetricsUtil` walks the `MetricsUpdaterTree` and gives each transformer's `MetricsUpdater` its operator metrics.
+6. The `SQLMetric` accumulators update, and the numbers appear in the SQL UI.
 
 - `MetricsUtil.genMetricsUpdatingFunction` ([source](../../backends-velox/src/main/scala/org/apache/gluten/metrics/MetricsUtil.scala#L30-L80)) builds a `MetricsUpdaterTree` mirroring the transformer tree (joins visit build + streamed sides; transformers with `MetricsUpdater.None` are skipped) and consumes native metrics in Rel-id order.
   - One Spark operator may correspond to several Velox nodes (e.g. join + pre/post projections); metrics are **merged** (`mergeMetrics`: input from the last, output from the first, times summed).
@@ -116,8 +108,7 @@ Configs are built with `buildConf` (dynamic, session-settable) or `buildStaticCo
 
 Native code turns session config into Velox `QueryConfig` and Hive connector session config in `WholeStageResultIterator::getQueryContextConf` / `createNewVeloxQueryCtx`.
 
-> [!TIP]
-> To verify what native code actually received, enable `spark.gluten.sql.debug=true`: `VeloxBackend` logs its config at init and `VeloxRuntime` logs the session config when creating result iterators.
+> **Tip:** To verify what native code actually received, enable `spark.gluten.sql.debug=true`: `VeloxBackend` logs its config at init and `VeloxRuntime` logs the session config when creating result iterators.
 
 ### 3.3 Most important configs (with v1.7.0 defaults)
 
@@ -162,25 +153,29 @@ Native code turns session config into Velox `QueryConfig` and Hive connector ses
 
 ## 5. Troubleshooting playbook
 
-```mermaid
-flowchart TD
-  S["Problem"] --> Q1{"Query slower than vanilla?"}
-  S --> Q2{"Wrong results?"}
-  S --> Q3{"Task failure / exception?"}
-  S --> Q4{"Executor lost / crash?"}
-  Q1 --> F1["Check fallbacks: Gluten UI tab, df.fallbackSummary, logs 'Validation failed for plan'"]
-  F1 --> F2["Count transitions in EXPLAIN; enable partial project; fix unsupported exprs or set stage fallback threshold"]
-  F2 --> F3["Inspect metrics: scan IO, shuffle split/sort, spill, C2R time"]
-  Q2 --> W1["Reproduce small; compare with spark.gluten.enabled=false"]
-  W1 --> W2["Bisect by disabling operators (spark.gluten.sql.columnar.<op>=false) or blacklisting functions"]
-  W2 --> W3["Check velox-backend-limitations.md; file issue with plan + data"]
-  Q3 --> E1{"OOM message?"}
-  E1 -->|"Not enough spark off-heap execution memory"| M1["Read memory dump; raise off-heap / lower cores / check spill configs"]
-  E1 -->|"GlutenException: Velox error"| E2["Read native message; enable printStackOnFailure; dump task with benchmark_task + saveDir"]
-  Q4 --> C1{"Exit 137 / container killed?"}
-  C1 -->|"yes"| C2["Raise memoryOverhead; profile native memory (jemalloc)"]
-  C1 -->|"no, SIGSEGV / hs_err"| C3["Collect hs_err + core; replay task in GenericBenchmark; debug build"]
-```
+A troubleshooting decision tree. Start from the symptom.
+
+**Query slower than vanilla Spark?**
+
+1. Check fallbacks: Gluten UI tab, `df.fallbackSummary()`, log lines `Validation failed for plan`.
+2. Count transitions in EXPLAIN. Turn on partial project, fix unsupported expressions, or set a stage fallback threshold.
+3. Inspect metrics: scan IO, shuffle split/sort time, spill, C2R time.
+
+**Wrong results?**
+
+1. Reproduce on small data and compare with `spark.gluten.enabled=false`.
+2. Bisect by disabling operators (`spark.gluten.sql.columnar.<op>=false`) or blacklisting functions.
+3. Check `velox-backend-limitations.md`. File an issue with the plan and data.
+
+**Task fails with an exception?**
+
+- "Not enough spark off-heap execution memory": read the memory dump; raise off-heap, lower cores, or check spill configs (worked case in §6.2).
+- "GlutenException: Velox error": read the native message, enable `printStackOnFailure`, and dump the task with `benchmark_task` + `saveDir`.
+
+**Executor lost or crashed?**
+
+- Exit code 137 / container killed: raise `memoryOverhead` and profile native memory (jemalloc).
+- SIGSEGV or `hs_err` file: collect `hs_err` and the core dump, replay the task in `GenericBenchmark`, use a debug build.
 
 ### 5.1 Fallback investigation
 
@@ -256,8 +251,7 @@ How to read and act on it:
    - if many small fallbacks make a stage slower than vanilla Spark, set `spark.gluten.sql.columnar.wholeStage.fallback.threshold`.
 5. **Verify**: `numFallbackNodes` drops to 0 and the Gluten UI tab shows no fallback for this query.
 
-> [!TIP]
-> In CI, set `spark.gluten.sql.columnar.failOnFallback=true` so that a new fallback fails the test instead of quietly slowing it down.
+> **Tip:** In CI, set `spark.gluten.sql.columnar.failOnFallback=true` so that a new fallback fails the test instead of quietly slowing it down.
 
 ### 6.2 Case B — Task fails with "Not enough spark off-heap execution memory"
 

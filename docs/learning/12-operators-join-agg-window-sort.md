@@ -108,23 +108,14 @@ Join type mapping (`substraitJoinType`): Inner, FullOuter, Left/Right Outer (wit
 
 ### 3.3 Broadcast hash join end to end
 
-```mermaid
-sequenceDiagram
-  participant D as Driver
-  participant BX as ColumnarBroadcastExchangeExec
-  participant E as Executors (build side tasks)
-  participant P as Executor (probe task)
-  participant C as VeloxBroadcastBuildSideCache
-  D->>BX: relationFuture
-  BX->>E: run build-side native stage; serialize Velox batches
-  E-->>BX: serialized batches (collect)
-  BX->>BX: createBroadcastRelation -> ColumnarBuildSideRelation (or Unsafe off-heap)
-  BX->>D: sparkContext.broadcast(relation)
-  P->>C: getOrBuildBroadcastHashTable(broadcast, id)
-  C->>C: first task on executor builds Velox hash table (native pointer)
-  C-->>P: BroadcastHashTable(pointer)
-  P->>P: HashProbe uses shared table (no rebuild per task)
-```
+A broadcast hash join, end to end.
+
+1. The driver asks `ColumnarBroadcastExchangeExec` for its `relationFuture`.
+2. The exchange runs the build-side native stage on executors. They serialize their Velox batches and send them back (collect).
+3. The exchange builds a `ColumnarBuildSideRelation` (or the off-heap `UnsafeColumnarBuildSideRelation`) and broadcasts it with `sparkContext.broadcast`.
+4. A probe task on an executor calls `VeloxBroadcastBuildSideCache.getOrBuildBroadcastHashTable(broadcast, id)`.
+5. The first task on that executor builds the Velox hash table and caches a native pointer.
+6. Every probe task gets the same `BroadcastHashTable`. Velox `HashProbe` uses the shared table, so it is not rebuilt per task.
 
 - `ColumnarBroadcastExchangeExec.relationFuture` runs `createBroadcastRelation(mode, child, ...)` (metrics `collectTime`, `broadcastTime`, `dataSize`, `numOutputRows`) and broadcasts it.
 - Gluten ignores `HashedRelationBroadcastMode.isNullAware` in the relation (documented in code) — null-aware semantics are handled in the join itself.

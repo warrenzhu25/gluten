@@ -58,27 +58,17 @@
 
 ## 3. Architecture
 
-```mermaid
-flowchart TB
-  SP["spark.plugins = org.apache.gluten.GlutenPlugin"] --> GP["GlutenPlugin"]
-  GP --> DP["GlutenDriverPlugin"]
-  GP --> EP["GlutenExecutorPlugin"]
-  DP --> EXT["append GlutenSessionExtensions to spark.sql.extensions"]
-  DP --> CFG["setPredefinedConfigs: off-heap checks, per-task sizes"]
-  DP --> CS["Component.sorted()"]
-  EP --> CS
-  CS --> DISC["Discovery: META-INF/gluten-components/*"]
-  DISC --> DAG["Dependency graph + topological sort"]
-  DAG --> VB["VeloxBackend (root)"]
-  DAG --> ICE["VeloxIcebergComponent (depends on VeloxBackend)"]
-  DAG --> DEL["VeloxDeltaComponent ..."]
-  VB --> LA["VeloxListenerApi.onDriverStart / onExecutorStart"]
-  LA --> LIB["load libgluten.so + libvelox.so"]
-  LA --> NBI["NativeBackendInitializer.initialize"]
-  NBI --> CPP["C++ VeloxBackend::init"]
-  EXT --> GSE["GlutenSessionExtensions.apply (per SparkSession)"]
-  GSE --> INJ["components (reverse order).injectRules(injector)"]
-```
+How Gluten boots, from one config key down to the native library.
+
+1. `spark.plugins=org.apache.gluten.GlutenPlugin` loads `GlutenPlugin`, which has a driver part and an executor part.
+2. The driver plugin (`GlutenDriverPlugin`):
+   - appends `GlutenSessionExtensions` to `spark.sql.extensions`;
+   - runs `setPredefinedConfigs` (off-heap checks, per-task sizes);
+   - calls `Component.sorted()`.
+3. The executor plugin (`GlutenExecutorPlugin`) also calls `Component.sorted()`.
+4. `Component.sorted()` discovers components from `META-INF/gluten-components/*` files, builds a dependency graph, and sorts it. `VeloxBackend` is the root; `VeloxIcebergComponent`, `VeloxDeltaComponent` and others depend on it.
+5. `VeloxBackend`'s listener (`VeloxListenerApi.onDriverStart` / `onExecutorStart`) loads `libgluten.so` and `libvelox.so`, then calls `NativeBackendInitializer.initialize`, which runs C++ `VeloxBackend::init`.
+6. Later, for each `SparkSession`, `GlutenSessionExtensions.apply` asks every component (in reverse order) to inject its rules.
 
 ---
 
@@ -218,8 +208,7 @@ object BackendsApiManager {
 }
 ```
 
-> [!IMPORTANT]
-> Exactly **one** Substrait backend must be on the classpath. Don't mix the Velox and ClickHouse bundles.
+> **Important:** Exactly **one** Substrait backend must be on the classpath. Don't mix the Velox and ClickHouse bundles.
 
 ### 4.4 `VeloxListenerApi` — native startup
 
@@ -245,8 +234,7 @@ object BackendsApiManager {
 7. **`NativeBackendInitializer.forBackend("velox").initialize(globalListener, parseConf(conf, isDriver))`** — the global off-heap listener charges native *global* allocations to `GlobalOffHeapMemory.target`.
 8. Register the Velox Parquet writer injects and `VeloxRowSplitter`.
 
-> [!NOTE]
-> On the driver, `parseConf` forces `COLUMNAR_VELOX_CACHE_ENABLED=false` (issue #7837) — the driver doesn't need the data cache.
+> **Note:** On the driver, `parseConf` forces `COLUMNAR_VELOX_CACHE_ENABLED=false` (issue #7837) — the driver doesn't need the data cache.
 
 ### 4.5 Native initialization (`VeloxBackend::init`)
 
@@ -310,31 +298,19 @@ Runtimes.contextInstance(backendName, name, extraConf)
 
 ## 5. End-to-end worked example: starting `spark-shell` with Gluten
 
-```mermaid
-sequenceDiagram
-  participant SS as spark-shell (driver JVM)
-  participant SC as SparkContext
-  participant GDP as GlutenDriverPlugin
-  participant C as Component.sorted()
-  participant VB as VeloxBackend / VeloxListenerApi
-  participant N as C++ VeloxBackend::init
-  participant EX as Executor JVM
-  participant GEP as GlutenExecutorPlugin
-  SS->>SC: new SparkContext(conf with spark.plugins)
-  SC->>GDP: init(sc, pluginContext)
-  GDP->>GDP: add GlutenSessionExtensions, setPredefinedConfigs
-  GDP->>C: discover + sort components
-  C-->>GDP: [velox, velox-iceberg, ...]
-  GDP->>VB: onDriverStart
-  VB->>VB: listeners, overhead default, load libgluten + libvelox
-  VB->>N: NativeBackendInitializer.initialize(conf)
-  SC->>GDP: registerMetrics (attach Gluten UI tab)
-  SC->>EX: launch executors
-  EX->>GEP: init(ctx)
-  GEP->>VB: onExecutorStart -> load libs -> native init
-  SS->>SS: SparkSession.builder.getOrCreate()
-  SS->>SS: GlutenSessionExtensions.apply -> inject rules
-```
+The startup sequence for `spark-shell`.
+
+1. `spark-shell` creates a `SparkContext` whose conf contains `spark.plugins`.
+2. The `SparkContext` calls `GlutenDriverPlugin.init`.
+3. The driver plugin adds `GlutenSessionExtensions` and sets predefined configs.
+4. It discovers and sorts components, for example `[velox, velox-iceberg, ...]`.
+5. It calls `onDriverStart` on the Velox backend, which:
+   - registers listeners and sets a default memory overhead;
+   - loads `libgluten` and `libvelox`;
+   - calls `NativeBackendInitializer.initialize(conf)` to run C++ `VeloxBackend::init`.
+6. The `SparkContext` registers metrics and attaches the Gluten UI tab.
+7. Executors launch. In each one, `GlutenExecutorPlugin.init` calls `onExecutorStart`, which loads the libraries and initializes native code.
+8. `SparkSession.builder.getOrCreate()` runs `GlutenSessionExtensions.apply`, which injects the planner rules.
 
 What you'll see in the driver log (illustrative):
 

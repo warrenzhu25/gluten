@@ -54,24 +54,23 @@ And since every following operator is native, the scan's output never leaves nat
 
 ## 3. Architecture
 
-```mermaid
-flowchart TB
-  subgraph Driver
-    FSE["FileSourceScanExec (Spark): partition pruning, DPP, file listing, FilePartitions"] --> OFF["OffloadOthers -> ScanTransformerFactory"]
-    OFF --> FSET["FileSourceScanExecTransformer"]
-    FSET --> VAL["validateScanExec: format, scheme, metadata, types + native validation"]
-    FSET --> PD["PushDownFilterToScan (filter conjuncts into scan)"]
-    FSET --> RR["doTransform: ReadRel(schema, filter)"]
-    FSET --> SI["getSplitInfos -> VeloxIteratorApi.genSplitInfo per FilePartition"]
-  end
-  subgraph Executor
-    RR2["ReadRel + SplitInfo"] --> TS["Velox TableScanNode (Hive connector)"]
-    TS --> RD["DWIO reader: Parquet / ORC (subfield filters, lazy vectors)"]
-    RD --> FS["Filesystem: local, HDFS, S3, GCS, ABFS (+ AsyncDataCache)"]
-  end
-  RR --> RR2
-  SI --> RR2
-```
+How a file scan is planned and executed.
+
+**Driver:**
+
+1. Spark's `FileSourceScanExec` does partition pruning, dynamic partition pruning (DPP) and file listing, and builds `FilePartition`s.
+2. `OffloadOthers` uses `ScanTransformerFactory` to create a `FileSourceScanExecTransformer`.
+3. The transformer:
+   - validates itself (`validateScanExec`: format, filesystem scheme, metadata, types, plus native validation);
+   - takes filter conjuncts pushed down by `PushDownFilterToScan`;
+   - emits a Substrait `ReadRel(schema, filter)` in `doTransform`;
+   - produces split infos through `getSplitInfos` → `VeloxIteratorApi.genSplitInfo`, one per `FilePartition`.
+
+**Executor:**
+
+1. The `ReadRel` and its `SplitInfo` become a Velox `TableScanNode` on the Hive connector.
+2. The DWIO reader reads Parquet or ORC with subfield filters and lazy vectors.
+3. Bytes come from the filesystem layer: local, HDFS, S3, GCS or ABFS, optionally through `AsyncDataCache`.
 
 ---
 

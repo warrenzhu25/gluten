@@ -2,7 +2,7 @@
 
 > **Series:** Learning Apache Gluten (Velox backend) · **Code base:** Apache Gluten **v1.7.0** (tag `v1.7.0`)
 >
-> This is the entry point of the series. Read it first; every other doc goes deeper into one box of the diagrams below.
+> This is the entry point of the series. Read it first; every other doc goes deeper into one step of the flow described below.
 
 ---
 
@@ -88,27 +88,25 @@ That gives:
 
 ## 3. Architecture at a glance
 
-```mermaid
-flowchart TB
-  subgraph Driver["Driver (JVM)"]
-    SQL["SQL / DataFrame"] --> Cat["Catalyst: analyze + optimize"]
-    Cat --> Phys["Spark physical plan"]
-    Phys --> GR["GlutenColumnarRule (injected via SparkSessionExtensions)"]
-    GR --> Tx["Offload + validate + fallback"]
-    Tx --> WST["WholeStageTransformer stages + transitions + ColumnarExchange"]
-    WST --> SP["Substrait plan bytes per stage"]
-  end
-  subgraph Executor["Executor"]
-    T["Spark Task: GlutenWholeStageColumnarRDD.compute"] --> JNI["JNI: PlanEvaluatorJniWrapper"]
-    JNI --> RT["VeloxRuntime: Substrait to Velox plan"]
-    RT --> VT["Velox Task (serial, 1 driver)"]
-    VT --> CB["VeloxColumnarBatch"]
-    CB --> SW["Columnar shuffle writer"]
-    CB --> C2R["VeloxColumnarToRow (if Spark needs rows)"]
-  end
-  SP -->|"serialized in RDD partitions"| T
-  MM["Spark TaskMemoryManager"] <-->|"reserve / spill"| VT
-```
+How the pieces fit together, in the order a query passes through them.
+
+**On the driver (JVM):**
+
+1. You submit SQL or a DataFrame.
+2. Catalyst analyzes and optimizes it, then Spark builds a physical plan.
+3. `GlutenColumnarRule` (injected through `SparkSessionExtensions`) rewrites that plan: it offloads, validates and falls back node by node.
+4. The result is a plan made of `WholeStageTransformer` stages, transitions and `ColumnarExchange` (shuffle) nodes.
+5. Each native stage is serialized into Substrait plan bytes, which travel inside the RDD partitions sent to executors.
+
+**On each executor:**
+
+1. A Spark task runs `GlutenWholeStageColumnarRDD.compute`.
+2. It calls into C++ through JNI (`PlanEvaluatorJniWrapper`).
+3. `VeloxRuntime` turns the Substrait plan into a Velox plan.
+4. A Velox task runs it serially (one driver) and produces `VeloxColumnarBatch`es.
+5. Batches go either to the columnar shuffle writer, or through `VeloxColumnarToRow` if a Spark operator needs rows.
+
+Throughout, Velox reserves memory from Spark's `TaskMemoryManager`, and Spark can ask it to spill.
 
 ### Layered view
 
@@ -178,8 +176,7 @@ spark-shell \
   --conf spark.shuffle.manager=org.apache.spark.shuffle.sort.ColumnarShuffleManager
 ```
 
-> [!IMPORTANT]
-> Off-heap must be enabled (unless dynamic off-heap sizing is used): `GlutenDriverPlugin.checkOffHeapSettings` throws if `spark.memory.offHeap.enabled` is false or the size is < 1MB. Native memory is accounted against this budget. See [Memory management](06-memory-management.md).
+> **Important:** Off-heap must be enabled (unless dynamic off-heap sizing is used): `GlutenDriverPlugin.checkOffHeapSettings` throws if `spark.memory.offHeap.enabled` is false or the size is < 1MB. Native memory is accounted against this budget. See [Memory management](06-memory-management.md).
 
 ### Step 1 — Startup (driver & executors)
 
@@ -271,31 +268,18 @@ Details: [03 · Substrait](03-substrait-and-native-plan-conversion.md), [09 · S
 
 For each task:
 
-```mermaid
-sequenceDiagram
-  participant RDD as GlutenWholeStageColumnarRDD.compute
-  participant IT as VeloxIteratorApi.genFirstStageIterator
-  participant NPE as NativePlanEvaluator (Java)
-  participant JNI as JniWrapper.cc
-  participant RT as VeloxRuntime (C++)
-  participant WS as WholeStageResultIterator
-  participant V as Velox Task
-  RDD->>IT: partition (plan bytes + split infos)
-  IT->>NPE: create(backend), createKernelWithBatchIterator(plan, splits, inputIters, spillDir)
-  NPE->>JNI: nativeCreateKernelWithIterator
-  JNI->>RT: parsePlan, parseSplitInfo
-  RT->>RT: VeloxPlanConverter.toVeloxPlan (Substrait to Velox PlanNodes)
-  RT->>WS: new WholeStageResultIterator(plan, splits, ...)
-  WS->>V: TaskCursor::create(serialExecution=true, maxDrivers=1)
-  loop each batch
-    RDD->>JNI: ColumnarBatchOutIterator.nativeHasNext / nativeNext
-    JNI->>WS: next()
-    WS->>V: cursor.moveNext()
-    V-->>WS: RowVector
-    WS-->>RDD: handle of VeloxColumnarBatch
-  end
-  RDD->>JNI: close + fetch native metrics
-```
+What happens inside one task, step by step.
+
+1. `GlutenWholeStageColumnarRDD.compute` receives its partition: plan bytes plus split infos.
+2. `VeloxIteratorApi.genFirstStageIterator` creates a `NativePlanEvaluator` and calls `createKernelWithBatchIterator(plan, splits, inputIters, spillDir)`.
+3. The evaluator calls JNI `nativeCreateKernelWithIterator`.
+4. In C++, `VeloxRuntime` parses the plan and splits, and `VeloxPlanConverter.toVeloxPlan` builds Velox plan nodes.
+5. It creates a `WholeStageResultIterator`, which opens a Velox `TaskCursor` (serial execution, one driver).
+6. Then, for each batch:
+   - the JVM calls `nativeHasNext` / `nativeNext`;
+   - the iterator calls `cursor.moveNext()` and Velox returns a `RowVector`;
+   - the JVM receives a handle to a `VeloxColumnarBatch`. The data itself stays in C++.
+7. At the end, the JVM closes the iterator and fetches native metrics.
 
 Key facts:
 - **One Velox Task per Spark task**, executed **serially on the Spark task thread** (`params.serialExecution = true`, `maxDrivers = 1`). Parallelism still comes from Spark tasks.
@@ -336,8 +320,7 @@ Details: [05 · Transitions](05-columnar-batches-conventions-transitions.md), [1
 | Memory accounting | | ✅ (memory targets) | ✅ (pools, arbitrator) |
 | Shuffle write/read | | ✅ (Spark framework) | ✅ (partitioning, serialization, compression) |
 
-> [!NOTE]
-> Native libraries are loaded on the **driver too**, because native validation runs there during planning.
+> **Note:** Native libraries are loaded on the **driver too**, because native validation runs there during planning.
 
 ---
 
